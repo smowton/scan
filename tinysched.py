@@ -31,14 +31,14 @@ class Process:
 		self.cmd = cmd
                 self.pid = pid
 		self.proc = None
-		self.node = None
+		self.worker = None
 
         def to_dict(self):
                 d = copy.deepcopy(self.__dict__)
                 if self.proc is not None:
                         d["proc"] = self.proc.pid
-                if self.node is not None:
-                        d["node"] = self.node.address
+                if self.worker is not None:
+                        d["worker"] = self.worker.address
                 return d
                 
 class DictEncoder(json.JSONEncoder):
@@ -79,8 +79,8 @@ class TinyScheduler:
                 
                 self.procs = dict()
                 self.pending = []
-                self.nodes = dict()
-                self.freenodes = []
+                self.workers = dict()
+                self.freeworkers = []
                 self.pendingreplacements = []
                 self.pendingremoves = 0
                 self.current_hwspec_version = 0
@@ -98,14 +98,14 @@ class TinyScheduler:
                 if len(self.pending) == 0:
                         return False
                         
-                if len(self.freenodes) == 0:
+                if len(self.freeworkers) == 0:
                         return False
 
-                runnode = self.freenodes[-1]
-                self.freenodes.pop()
+                runworker = self.freeworkers[-1]
+                self.freeworkers.pop()
 
                 cmdline = copy.deepcopy(runner)
-                cmdline.append(runnode.address)
+                cmdline.append(runworker.address)
 
                 np = self.pending[0]
 
@@ -118,7 +118,7 @@ class TinyScheduler:
                 print "Start process", np.pid, cmdline
 
                 np.proc = subprocess.Popen(cmdline)
-                np.node = runnode
+                np.worker = runworker
                 self.pending.pop(0)
 
                 return True
@@ -128,19 +128,19 @@ class TinyScheduler:
                 while self.trystartproc():
                         pass
 
-        def release_node(self, freed_node, in_nodes_map = True):
+        def release_worker(self, freed_worker, in_workers_map = True):
 
-                # Node has already been removed from the free list.
-                if in_nodes_map:
-                        del self.nodes[freed_node.wid]
+                # Worker has already been removed from the free list.
+                if in_workers_map:
+                        del self.workers[freed_worker.wid]
                 
                 if self.callback_host is None:
                         return
 
-                params = {"class": self.classname, "wid": freed_node.wid}
+                params = {"class": self.classname, "wid": freed_worker.wid}
                 self.httpqueue.queue.put((self.callback_host, self.callback_address, params))
 
-                print "Release worker callback for", freed_node.wid, freed_node.address
+                print "Release worker callback for", freed_worker.wid, freed_worker.address
 
 	def pollworkitem(self, pid):
 
@@ -157,25 +157,25 @@ class TinyScheduler:
                                 print "Process", pid, "finished"
                                 
 				del self.procs[pid]
-                                freed_node = rp.node
+                                freed_worker = rp.worker
 
                                 if self.pendingremoves > 0:
-                                        print "Releasing worker", freed_node.wid, freed_node.address
-                                        self.release_node(freed_node)
+                                        print "Releasing worker", freed_worker.wid, freed_worker.address
+                                        self.release_worker(freed_worker)
                                         self.pendingremoves -= 1
-                                        freed_node = None
-                                elif freed_node.hwspec_version != self.current_hwspec_version:
+                                        freed_worker = None
+                                elif freed_worker.hwspec_version != self.current_hwspec_version:
                                         if len(self.pendingreplacements) == 0:
-                                                raise Exception("No pending replacements, but node %s version %d does not match current version %d?" % 
-                                                                (freed_node.address, freed_node.hwspec_version, self.current_hwspec_version))
-                                        print "Replacing node", freed_node.wid, freed_node.address, "with", self.pendingreplacements[-1].wid, self.pendingreplacements[-1].address
-                                        self.release_node(freed_node)
-                                        freed_node = self.pendingreplacements[-1]
-                                        self.nodes[freed_node.wid] = freed_node
+                                                raise Exception("No pending replacements, but worker %s version %d does not match current version %d?" % 
+                                                                (freed_worker.address, freed_worker.hwspec_version, self.current_hwspec_version))
+                                        print "Replacing worker", freed_worker.wid, freed_worker.address, "with", self.pendingreplacements[-1].wid, self.pendingreplacements[-1].address
+                                        self.release_worker(freed_worker)
+                                        freed_worker = self.pendingreplacements[-1]
+                                        self.workers[freed_worker.wid] = freed_worker
                                         self.pendingreplacements.pop()
                                         
-                                if freed_node is not None:
-                                        self.freenodes.append(freed_node)
+                                if freed_worker is not None:
+                                        self.freeworkers.append(freed_worker)
 					self.trystartprocs()
 
 			return json.dumps({"pid": pid, "retcode": ret})
@@ -200,28 +200,28 @@ class TinyScheduler:
                 print "Add worker", wid, address
                 return Worker(address, self.current_hwspec_version, wid)
 
-	def addnode(self, address):
+	def addworker(self, address):
 
 		with self.lock:
 
-                        newnode = self.newworker(address)
-                        self.nodes[newnode.wid] = newnode
-                        self.freenodes.append(newnode)
+                        newworker = self.newworker(address)
+                        self.workers[newworker.wid] = newworker
+                        self.freeworkers.append(newworker)
 			self.trystartprocs()
-			return json.dumps({"wid": newnode.wid})
+			return json.dumps({"wid": newworker.wid})
 
-	def delnode(self):
+	def delworker(self):
 
 		with self.lock:
 
-                        if len(self.nodes) == 0:
+                        if len(self.workers) == 0:
                                 raise Exception("No workers in this class pool")
-                        if len(self.freenodes) == 0:
+                        if len(self.freeworkers) == 0:
                                 self.pendingremoves += 1
                         else:
-                                todel = self.freenodes[-1]
-                                self.freenodes.pop()
-                                self.release_node(todel)
+                                todel = self.freeworkers[-1]
+                                self.freeworkers.pop()
+                                self.release_worker(todel)
 			return json.dumps({"status": "ok"})
 
 	def modhwspec(self, addresses, newspec):
@@ -229,8 +229,8 @@ class TinyScheduler:
 		with self.lock:
 
                         addresses = [x.strip() for x in addresses.split(",") if len(x.strip()) > 0]
-                        if len(addresses) != len(self.nodes):
-                                raise Exception("Must supply the same number of replacement workers as are currently in the pool (supplied %d, have %d)" % (len(addresses), len(self.nodes)))
+                        if len(addresses) != len(self.workers):
+                                raise Exception("Must supply the same number of replacement workers as are currently in the pool (supplied %d, have %d)" % (len(addresses), len(self.workers)))
                                 
                         specs = [x.strip() for x in newspec.split(",") if len(x.strip()) > 0]
                         newdict = dict()
@@ -248,19 +248,19 @@ class TinyScheduler:
                         # Step 1: immediately release any pendingreplacements, which never
                         # made it into the live worker pool.
                         for w in self.pendingreplacements:
-                                self.release_node(w, False)
+                                self.release_worker(w, False)
 
                         # Step 2: immediately replace any free workers.
-                        freenodes = self.freenodes
-                        self.freenodes = []
-                        for w in freenodes:
-                                self.release_node(w)
+                        freeworkers = self.freeworkers
+                        self.freeworkers = []
+                        for w in freeworkers:
+                                self.release_worker(w)
                                 replace_with = new_workers[-1]
                                 new_workers.pop()
-                                self.nodes[replace_with.wid] = replace_with
-                                self.freenodes.append(replace_with)
+                                self.workers[replace_with.wid] = replace_with
+                                self.freeworkers.append(replace_with)
 
-                        print "Replaced", len(self.nodes) - len(new_workers), "workers immediately;", len(new_workers), "pending"
+                        print "Replaced", len(self.workers) - len(new_workers), "workers immediately;", len(new_workers), "pending"
 
                         # Step 3: queue up the remaining replacements to enter service when
                         # currently busy workers become free.
@@ -276,10 +276,10 @@ class TinyScheduler:
                         self.callback_host, self.callback_address = address.split("/", 1)
                         self.callback_address = "/%s" % self.callback_address
 
-        def lsnodes(self):
+        def lsworkers(self):
 
                 with self.lock:
-                        return json.dumps(self.nodes, cls=DictEncoder)
+                        return json.dumps(self.workers, cls=DictEncoder)
 
         def lsprocs(self):
 
