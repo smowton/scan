@@ -25,7 +25,7 @@ class Worker:
         def to_dict(self):
                 return self.__dict__
 
-class Process:
+class Task:
 
 	def __init__(self, cmd, pid):
 		self.cmd = cmd
@@ -49,7 +49,7 @@ class DictEncoder(json.JSONEncoder):
 class MulticlassScheduler:
 
         def __init__(self, httpqueue):
-                
+
                 # TODO: stop hardcoding classes
                 classes = ["A", "B"]
                 self.queues = dict()
@@ -154,7 +154,7 @@ class TinyScheduler:
 				ret = None
 			if ret is not None:
 
-                                print "Process", pid, "finished"
+                                print "Task", pid, "finished"
                                 
 				del self.procs[pid]
                                 freed_worker = rp.worker
@@ -185,7 +185,7 @@ class TinyScheduler:
 		with self.lock:
 
 			newpid = self.nextpid
-			newproc = Process(cmd, newpid)
+			newproc = Task(cmd, newpid)
 			self.nextpid += 1
 			self.procs[newpid] = newproc
 			self.pending.append(newproc)
@@ -340,7 +340,7 @@ class HttpQueue:
                 self.queue.put(None)
                 self.thread.join()
 
-class ProcessPoller:
+class TaskPoller:
 
         def __init__(self, sched):
                 self.sched = sched
@@ -367,7 +367,7 @@ class ProcessPoller:
 
 httpqueue = HttpQueue()
 sched = MulticlassScheduler(httpqueue)
-poller = ProcessPoller(sched)
+poller = TaskPoller(sched)
 
 def thread_stop():
         httpqueue.stop()
