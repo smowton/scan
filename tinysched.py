@@ -9,11 +9,9 @@ import subprocess
 import httplib
 import urllib
 import Queue
+import datetime
 
-if len(sys.argv) > 1 and sys.argv[1] == "--win":
-        runner = ["psexec.exe"]
-else:
-        runner = ["/usr/bin/ssh"]
+runner = ["/usr/bin/ssh"]
 
 class Worker:
 
@@ -32,6 +30,7 @@ class Task:
                 self.pid = pid
 		self.proc = None
 		self.worker = None
+                self.start_time = None
 
         def to_dict(self):
                 d = copy.deepcopy(self.__dict__)
@@ -40,6 +39,25 @@ class Task:
                 if self.worker is not None:
                         d["worker"] = self.worker.address
                 return d
+
+        def piddir(self):
+                return "/tmp/scanpids/%d" % self.pid
+
+        def pidfile(self):
+                return "%s/pid" % self.piddir()
+
+        resscript = "/home/user/csmowton/scan/getres.py"
+
+        def getresusage(self):
+                cmd = copy.deepcopy(runner)
+                cmd.append(self.worker.address)
+                cmd.append(Task.resscript)
+                cmd.append(self.pidfile())
+                jsstats = json.loads(subprocess.check_output(cmd))
+                if "error" in jsstats:
+                        raise Exception(jsstats["error"])
+                else:
+                        return jsstats
                 
 class DictEncoder(json.JSONEncoder):
 
@@ -113,12 +131,16 @@ class TinyScheduler:
                 for key, val in self.current_hwspec.iteritems():
                         cmd = cmd.replace("%%%%%s%%%%" % key, val)
 
+                # Prepend bookkeeping:
+                cmd = "mkdir -p %s; echo $$ > %s; %s" % (np.piddir(), np.pidfile(), cmd)
+
                 cmdline.append(cmd)
                 
                 print "Start process", np.pid, cmdline
 
                 np.proc = subprocess.Popen(cmdline)
                 np.worker = runworker
+                np.start_time = datetime.datetime.now()
                 self.pending.pop(0)
 
                 return True
@@ -290,6 +312,57 @@ class TinyScheduler:
 
                 with self.lock:
                         return list(self.procs.iterkeys())
+
+        def getresusage(self):
+                
+                # Get resource usage, as proportions compared to the
+                # current hardware spec. The current spec may not have
+                # fully taken effect yet, so this really shows what it
+                # _will_ be once it does.
+
+                try:
+                        cores = int(self.current_hwspec["cores"])
+                except KeyError:
+                        raise Exception("Must specify hwspec core count before getresusage works")
+
+                try:
+                        mem = int(self.current_hwspec["memory"])
+                except KeyError:
+                        raise Exception("Must specify memory amount before getresusage works")
+
+                tocheck = []
+
+                with self.lock:
+                        for proc in self.procs.itervalues():
+                                if proc.worker is not None:
+                                        tocheck.append(proc)
+
+                now = datetime.datetime.now()
+
+                cpu_usage_samples = []
+                mem_usage_samples = []
+
+                # Outside the lock -- processes might end during the check,
+                # in which case skip them for stats purposes.
+                for proc in tocheck:
+                        try:
+                                res = proc.getresusage()
+                        except Exception as e:
+                                print >>sys.stderr, "Skipping process %d (%s)" % (proc.pid, e)
+
+                                continue
+                        walltime = (now - proc.start_time).total_seconds() * cores
+                        cpu_usage = float(res["cpuseconds"]) / walltime
+                        cpu_usage_samples.append(cpu_usage)
+
+                        mem_usage_samples.append(float(res["rsskb"]) / (mem * 1024))
+
+                if len(cpu_usage_samples) == 0:
+                        return json.dumps({"cpu": 0, "mem": 0})
+                else:
+                        return json.dumps({"cpu": sum(cpu_usage_samples) / len(cpu_usage_samples),
+                                           "mem": sum(mem_usage_samples) / len(mem_usage_samples)})
+
 
 class HttpQueue:
 
