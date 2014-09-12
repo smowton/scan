@@ -10,6 +10,9 @@ import httplib
 import urllib
 import Queue
 import datetime
+import traceback
+
+import scan_templates
 
 runner = ["/usr/bin/ssh"]
 
@@ -63,6 +66,42 @@ class DictEncoder(json.JSONEncoder):
         def default(self, o):
                 return o.to_dict()
 
+class SubmitUI:
+
+        def __init__(self, classes):
+                self.classes = classes
+
+        def mkcombo(self, name, entries):
+                return ('<select name="%s"><option value="null"></option>' % name
+                        + "".join(['<option value="%s">%s</option>' % (d["name"], d["desc"]) for d in entries])
+                        + '</select>')
+
+        def mktemplatecombo(self):
+                return self.mkcombo("template", [{"name": k, "desc": v["desc"]} for (k, v) in scan_templates.templates().iteritems()])
+        
+        def mkclasscombo(self):
+                return self.mkcombo("classname", [{"name": c["name"], "desc": c["name"]} for c in self.classes])
+
+        @cherrypy.expose
+        def index(self):
+                return """
+
+<html><body><h3>SCAN Job Submission</h3>
+<form method="post" action="/addworkitem_ui">
+<p><table><tr><td>
+<p><b>Select a template, and enter input values</b></p>
+<p>Template: %s</p>
+<p>Input values (one per line):</p>
+<p><textarea name="templateinputs" rows="8" cols="40"></textarea></p>
+</td><td>
+<p><b>...or, enter your script and pick a task class</b></p>
+<p>Script:</p>
+<p><textarea name="script" rows="8" cols="40"></textarea></p>
+<p>Class: %s</p>
+</td></tr>
+<tr><td><input type="submit"/></td></tr></table></p>
+</form></body></html>""" % (self.mktemplatecombo(), self.mkclasscombo())
+
 class MulticlassScheduler:
 
         def __init__(self, httpqueue):
@@ -78,10 +117,54 @@ class MulticlassScheduler:
                 for c in classes:
                         self.queues[c["name"]] = TinyScheduler(c, httpqueue)
 
+                self.ui = SubmitUI(classes)
+
+        @cherrypy.expose
+        def addworkitem_ui(self, template, templateinputs, classname, script):
+
+                try:
+
+                        if template != "null":
+
+                                if classname != "null":
+                                        raise Exception("Must specify either a template or a class, not both")
+                                try:
+                                        temp = scan_templates.templates()[template]
+                                except KeyError:
+                                        raise Exception("No such template %s" % template)
+                                classname = temp["classname"]
+                                templateinputs = [x.strip() for x in templateinputs.split("\n") if len(x.strip()) > 0]
+                                if len(templateinputs) == 0:
+                                        raise Exception("Must specify at least one template parameter")
+                                scripts = [temp["script"] % t for t in templateinputs]
+
+                        elif classname != "null":
+
+                                scripts = [script]
+
+                        else:
+
+                                raise Exception("Must specify either a template or a class")
+
+                        pids = []
+
+                        for s in scripts:
+                                ret = self.default(callname="addworkitem", classname=classname, cmd=s, fsreservation=0, dbreservation=0, set_ct=False)
+                                pids.append(json.loads(ret)["pid"])
+                              
+                        return "<html><body><p>Created PIDs %s</p></body></html>" % ", ".join([str(p) for p in pids])
+
+                except Exception as e:
+
+                        return "<html><body><p>Error: %s</p><p>%s</p></body></html>" % (e, traceback.format_exc(e).replace("\n", "<br/>"))
+
         @cherrypy.expose
         def default(self, callname, classname, **kwargs):
                 
-                cherrypy.response.headers['Content-Type'] = "application/json"                
+                if "set_ct" not in kwargs:
+                        cherrypy.response.headers['Content-Type'] = "application/json"
+                else:
+                        del kwargs["set_ct"]
 
                 try:
                         q = self.queues[classname]
@@ -452,6 +535,8 @@ def thread_stop():
 
 thread_stop.priority = 10
 cherrypy.engine.subscribe("stop", thread_stop)
+
+cherrypy.server.socket_host = '0.0.0.0'
 
 cherrypy.quickstart(sched)
 
