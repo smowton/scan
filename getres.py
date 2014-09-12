@@ -9,19 +9,22 @@ if len(sys.argv) < 2:
     print '{"error": "Usage: getres.py pidfile"}'
     sys.exit(0)
 
+ps = "/bin/ps"
+# Under Cygwin use /bin/procps
+
 def getres(pidfile):
 
     with open(pidfile, "r") as f:
         pid = int(f.read().strip())
 
     # Get process group:
-    cmd = ["/bin/ps", "--no-header", "-p", str(pid), "-o", "pgrp"]
+    cmd = [ps, "--no-header", "-p", str(pid), "-o", "pgrp"]
     try:
         pgrp = int(subprocess.check_output(cmd).strip())
     except Exception as e:
         raise Exception("No such process %d (cause: %s)" % (pid, e))
 
-    psproc = subprocess.Popen(["/bin/ps", "ax", "-o", "pgrp,pid,cputime,rss", "--no-header"], stdout=subprocess.PIPE)
+    psproc = subprocess.Popen([ps, "ax", "-o", "pgrp,pid,cputime,rss", "--no-header"], stdout=subprocess.PIPE)
     
     totalcpu = 0
     totalrss = 0

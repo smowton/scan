@@ -25,12 +25,13 @@ class Worker:
 
 class Task:
 
-	def __init__(self, cmd, pid):
+	def __init__(self, cmd, pid, sched):
 		self.cmd = cmd
                 self.pid = pid
 		self.proc = None
 		self.worker = None
                 self.start_time = None
+                self.sched = sched
 
         def to_dict(self):
                 d = copy.deepcopy(self.__dict__)
@@ -46,12 +47,10 @@ class Task:
         def pidfile(self):
                 return "%s/pid" % self.piddir()
 
-        resscript = "/home/user/csmowton/scan/getres.py"
-
         def getresusage(self):
                 cmd = copy.deepcopy(runner)
-                cmd.append(self.worker.address)
-                cmd.append(Task.resscript)
+                cmd.append("%s@%s" % (self.sched.classspec["user"], self.worker.address))
+                cmd.append(self.sched.classspec["respath"])
                 cmd.append(self.pidfile())
                 jsstats = json.loads(subprocess.check_output(cmd))
                 if "error" in jsstats:
@@ -69,10 +68,15 @@ class MulticlassScheduler:
         def __init__(self, httpqueue):
 
                 # TODO: stop hardcoding classes
-                classes = ["A", "B"]
+                classes = [{"name": "linux",
+                            "user": "user",
+                            "respath": "/home/user/csmowton/scan/getres.py"},
+                           {"name": "windows",
+                            "user": "Administrator",
+                            "respath": "/home/Administrator/getres.py"}]
                 self.queues = dict()
                 for c in classes:
-                        self.queues[c] = TinyScheduler(c, httpqueue)
+                        self.queues[c["name"]] = TinyScheduler(c, httpqueue)
 
         @cherrypy.expose
         def default(self, callname, classname, **kwargs):
@@ -93,7 +97,7 @@ class MulticlassScheduler:
 
 class TinyScheduler:
  
-        def __init__(self, classname, httpqueue):
+        def __init__(self, classspec, httpqueue):
                 
                 self.procs = dict()
                 self.pending = []
@@ -105,7 +109,7 @@ class TinyScheduler:
                 self.current_hwspec = dict()
                 self.nextpid = 0
                 self.nextwid = 0
-                self.classname = classname
+                self.classspec = classspec
                 self.callback_address = None
                 self.callback_host = None
                 self.httpqueue = httpqueue
@@ -123,7 +127,7 @@ class TinyScheduler:
                 self.freeworkers.pop()
 
                 cmdline = copy.deepcopy(runner)
-                cmdline.append(runworker.address)
+                cmdline.append("%s@%s" % (self.classspec["user"], runworker.address))
 
                 np = self.pending[0]
 
@@ -159,7 +163,7 @@ class TinyScheduler:
                 if self.callback_host is None:
                         return
 
-                params = {"class": self.classname, "wid": freed_worker.wid}
+                params = {"class": self.classspec["name"], "wid": freed_worker.wid}
                 self.httpqueue.queue.put((self.callback_host, self.callback_address, params))
 
                 print "Release worker callback for", freed_worker.wid, freed_worker.address
@@ -207,7 +211,7 @@ class TinyScheduler:
 		with self.lock:
 
 			newpid = self.nextpid
-			newproc = Task(cmd, newpid)
+			newproc = Task(cmd, newpid, self)
 			self.nextpid += 1
 			self.procs[newpid] = newproc
 			self.pending.append(newproc)
