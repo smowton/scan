@@ -6,7 +6,12 @@ import cherrypy
 class ResultViewer:
 
     def __init__(self):
-        self.conn, self.cursor = cqlscan.cql_connect()
+        try:
+            self.conn, self.cursor = cqlscan.cql_connect()
+        except Exception as e:
+            print >>sys.stderr, "Failed to connect to Cassandra, results unavailable"
+            self.conn = None
+            self.cursor = None
         self.lock = threading.Lock()
 
     def getvars(self):
@@ -14,6 +19,9 @@ class ResultViewer:
         # (a) Mutations at [site]
         # (b) Mutations in [protein]
         # (c) Protein expression intensity
+
+        if self.cursor is None:
+            return ([], [], [])
 
         with self.lock:
 
