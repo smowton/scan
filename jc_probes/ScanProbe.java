@@ -1,6 +1,8 @@
 
 import java.util.HashMap;
 import java.util.Random;
+import java.util.List;
+import java.util.ArrayList;
 import java.net.URL;
 import java.net.MalformedURLException;
 import java.io.InputStream;
@@ -9,6 +11,7 @@ import java.io.StringWriter;
 import java.io.IOException;
 import org.json.JSONTokener;
 import org.json.JSONObject;
+import org.json.JSONArray;
 
 import eu.celarcloud.jcatascopia.probepack.Probe;
 import eu.celarcloud.jcatascopia.probepack.ProbeMetric;
@@ -19,15 +22,48 @@ public class ScanProbe extends Probe{
 	
 	private static int DEFAULT_SAMPLING_PERIOD = 10;
 	private static String DEFAULT_PROBE_NAME = "ScanProbe";
-	private static String SCAN_HOST = "snf-538017.vm.okeanos.grnet.gr";
+	private static String SCAN_HOST = "localhost";
 	private static long SCAN_PORT = 8080;
+
+	private List<String> classes;
 
 	public ScanProbe(String name, int freq) {
 		super(name, freq);
-		this.addProbeProperty(0, "queueLength",ProbePropertyType.LONG,"","Queue length");
-		this.addProbeProperty(1,"workPerHour",ProbePropertyType.DOUBLE,"","Work units per hour");
-		this.addProbeProperty(2, "avgCpuUsage", ProbePropertyType.DOUBLE, "", "Average task CPU usage");
-		this.addProbeProperty(3, "avgMemoryUsage", ProbePropertyType.DOUBLE, "", "Average task memory usage");
+
+		try {
+
+			InputStream is = getStream("getclasses");
+			JSONTokener tok = new JSONTokener(is);
+			JSONArray jsclasses = new JSONArray(tok);
+
+			classes = new ArrayList<String>();
+
+			for(int i = 0, ilim = jsclasses.length(); i != ilim; ++i)
+				classes.add(jsclasses.getString(i));
+
+			is.close();
+
+		}
+		catch(Exception e) {
+
+			System.err.println("Exception " + e.toString() + " creating SCAN probe");
+			e.printStackTrace(System.err);
+			return;
+
+		}
+			
+		int idx = 0;
+			
+		for(String c : classes) {
+
+			this.addProbeProperty(idx + 0, c + "_queueLength",ProbePropertyType.LONG,"", c + " queue length");
+			this.addProbeProperty(idx + 1, c + "_workPerHour",ProbePropertyType.DOUBLE,"", c + " work units per hour");
+			this.addProbeProperty(idx + 2, c + "_avgCpuUsage", ProbePropertyType.DOUBLE, "", c + " average task CPU usage");
+			this.addProbeProperty(idx + 3, c + "_avgMemoryUsage", ProbePropertyType.DOUBLE, "", c + " average task memory usage");
+
+			idx += 4;
+
+		}
 	}
 	
 	public ScanProbe(){
@@ -59,9 +95,9 @@ public class ScanProbe extends Probe{
 
 	}
 
-	private long getQueueLength() throws MalformedURLException, IOException {
+	private long getQueueLength(String c) throws MalformedURLException, IOException {
 
-		InputStream is = getStream("lsprocs?classname=linux");
+		InputStream is = getStream("lsprocs?classname=" + c);
 		JSONTokener tok = new JSONTokener(is);
 		JSONObject a = new JSONObject(tok);
 		long ret = a.length();
@@ -70,20 +106,21 @@ public class ScanProbe extends Probe{
 
 	}
 
-	private double getWorkPerHour() throws MalformedURLException, IOException {
+	private double getWorkPerHour(String c) throws MalformedURLException, IOException {
 
-		String wph = getString("getwph?classname=linux");
+		String wph = getString("getwph?classname=" + c);
 		return Double.parseDouble(wph);		
 
 	}
 
-	private void getResourceUsage(HashMap<Integer, Object> values) throws MalformedURLException, IOException {
+	private void getResourceUsage(HashMap<Integer, Object> values, String c, int offset) throws MalformedURLException, IOException {
 
-		InputStream is = getStream("getresusage?classname=linux");
+		InputStream is = getStream("getresusage?classname=" + c);
 		JSONTokener tok = new JSONTokener(is);
 		JSONObject stats = new JSONObject(tok);
-		values.put(2, stats.get("cpu"));
-		values.put(3, stats.get("mem"));
+		values.put(offset + 2, stats.get("cpu"));
+		values.put(offset + 3, stats.get("mem"));
+		is.close();
 
 	}
 
@@ -91,13 +128,19 @@ public class ScanProbe extends Probe{
 
 		HashMap<Integer,Object> values = new HashMap<Integer,Object>();
 		
-		long qlen = getQueueLength();
-		double wph = getWorkPerHour();
-		
-		values.put(0, qlen);
-		values.put(1, wph);
+		int offset = 0;
 
-		getResourceUsage(values);
+		for(String c : classes) {
+		
+			long qlen = getQueueLength(c);
+			double wph = getWorkPerHour(c);
+		
+			values.put(offset + 0, qlen);
+			values.put(offset + 1, wph);
+
+			getResourceUsage(values, c, offset);
+
+		}
 				
 		return new ProbeMetric(values);
 

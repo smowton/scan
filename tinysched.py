@@ -105,17 +105,17 @@ class MulticlassScheduler:
         def __init__(self, httpqueue):
 
                 # TODO: stop hardcoding classes
-                classes = [{"name": "linux",
-                            "user": "user",
-                            "respath": "/home/user/csmowton/scan/getres.py"},
-                           {"name": "windows",
-                            "user": "Administrator",
-                            "respath": "/home/Administrator/getres.py"}]
+                self.classes = [{"name": "linux",
+                                 "user": "user",
+                                 "respath": "/home/user/csmowton/scan/getres.py"},
+                                {"name": "windows",
+                                 "user": "Administrator",
+                                 "respath": "/home/Administrator/getres.py"}]
                 self.queues = dict()
-                for c in classes:
+                for c in self.classes:
                         self.queues[c["name"]] = TinyScheduler(c, httpqueue)
 
-                self.ui = SubmitUI(classes)
+                self.ui = SubmitUI(self.classes)
                 self.results = integ_analysis.results.ResultViewer()
 
         @cherrypy.expose
@@ -176,6 +176,11 @@ class MulticlassScheduler:
                         return json.dumps({"error": "No such method %s" % callname})
 
                 return call(**kwargs)
+
+        @cherrypy.expose
+        def getclasses(self):
+
+                return json.dumps([x["name"] for x in self.classes])
 
 class TinyScheduler:
  

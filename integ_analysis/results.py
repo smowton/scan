@@ -2,6 +2,7 @@ import cqlscan
 import threading
 import websupport
 import cherrypy
+import sys
 
 class ResultViewer:
 
