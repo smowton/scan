@@ -26,7 +26,7 @@ with open(sys.argv[1], "r") as evf:
                 # Add derived data: leading-protein -> intensity:
                 prots = re.split(",|;", valdict["Leading Proteins"])
                 for prot in prots:
-                        attribdict["%s-intensity" % prot] = attribdict["Intensity"]
+                        attribdict["%s-intensity" % prot] = valdict["Intensity"]
 
 tok = cqlscan.cql_connect()
 sampleid = cqlscan.cql_add_sample(tok, attribdict, sys.argv[2])

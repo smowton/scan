@@ -11,8 +11,10 @@ import urllib
 import Queue
 import datetime
 import traceback
+import websupport
 
 import scan_templates
+import integ_analysis.results
 
 runner = ["/usr/bin/ssh"]
 
@@ -72,16 +74,11 @@ class SubmitUI:
         def __init__(self, classes):
                 self.classes = classes
 
-        def mkcombo(self, name, entries):
-                return ('<select name="%s"><option value="null"></option>' % name
-                        + "".join(['<option value="%s">%s</option>' % (d["name"], d["desc"]) for d in entries])
-                        + '</select>')
-
         def mktemplatecombo(self):
-                return self.mkcombo("template", [{"name": k, "desc": v["desc"]} for (k, v) in scan_templates.templates().iteritems()])
+                return websupport.mkcombo("template", [{"name": k, "desc": v["desc"]} for (k, v) in scan_templates.templates().iteritems()])
         
         def mkclasscombo(self):
-                return self.mkcombo("classname", [{"name": c["name"], "desc": c["name"]} for c in self.classes])
+                return websupport.mkcombo("classname", [{"name": c["name"], "desc": c["name"]} for c in self.classes])
 
         @cherrypy.expose
         def index(self):
@@ -119,6 +116,7 @@ class MulticlassScheduler:
                         self.queues[c["name"]] = TinyScheduler(c, httpqueue)
 
                 self.ui = SubmitUI(classes)
+                self.results = integ_analysis.results.ResultViewer()
 
         @cherrypy.expose
         def addworkitem_ui(self, template, templateinputs, classname, script):
