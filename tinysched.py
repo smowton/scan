@@ -37,11 +37,12 @@ class Task:
                 self.sched = sched
 
         def to_dict(self):
-                d = copy.deepcopy(self.__dict__)
+                d = copy.copy(self.__dict__)
                 if self.proc is not None:
                         d["proc"] = self.proc.pid
                 if self.worker is not None:
                         d["worker"] = self.worker.address
+                del d["sched"]
                 return d
 
         def piddir(self):
@@ -450,6 +451,8 @@ class TinyScheduler:
                         return json.dumps({"cpu": sum(cpu_usage_samples) / len(cpu_usage_samples),
                                            "mem": sum(mem_usage_samples) / len(mem_usage_samples)})
 
+        def getwph(self):
+                return "1"
 
 class HttpQueue:
 
