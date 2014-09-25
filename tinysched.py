@@ -179,8 +179,11 @@ class MulticlassScheduler:
 
         @cherrypy.expose
         def getclasses(self):
-
                 return json.dumps([x["name"] for x in self.classes])
+
+        @cherrypy.expose
+        def ping(self, echo):
+                return json.dumps({"echo": echo})
 
 class TinyScheduler:
  
