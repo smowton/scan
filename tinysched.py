@@ -16,7 +16,7 @@ import websupport
 import scan_templates
 import integ_analysis.results
 
-runner = ["/usr/bin/ssh"]
+runner = ["/usr/bin/ssh", "-o", "StrictHostKeyChecking=no"]
 
 class Worker:
 
