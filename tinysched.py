@@ -194,7 +194,7 @@ class TinyScheduler:
                 self.workers = dict()
                 self.freeworkers = []
                 self.pendingreplacements = []
-                self.pendingremoves = 0
+                self.pendingremoves = []
                 self.current_hwspec_version = 0
                 self.current_hwspec = dict()
                 self.nextpid = 0
@@ -244,18 +244,25 @@ class TinyScheduler:
                 while self.trystartproc():
                         pass
 
-        def release_worker(self, freed_worker, in_workers_map = True):
+        def release_worker(self, freed_worker, callback, in_workers_map = True):
 
                 # Worker has already been removed from the free list.
                 if in_workers_map:
                         del self.workers[freed_worker.wid]
                 
-                if self.callback_host is None:
+                params = {"classname": self.classspec["name"], "wid": freed_worker.wid, "address": freed_worker.address}
+
+                host, address = None, None
+
+                if callback is not None:
+                        host, address = callback
+                elif self.callback_host is not None:
+                        host, address = self.callback_host, self.callback_address
+
+                if host is None:
                         return
 
-                params = {"class": self.classspec["name"], "wid": freed_worker.wid}
-                self.httpqueue.queue.put((self.callback_host, self.callback_address, params))
-
+                self.httpqueue.queue.put((host, address, params))
                 print "Release worker callback for", freed_worker.wid, freed_worker.address
 
 	def pollworkitem(self, pid):
@@ -275,17 +282,17 @@ class TinyScheduler:
 				del self.procs[pid]
                                 freed_worker = rp.worker
 
-                                if self.pendingremoves > 0:
+                                if len(self.pendingremoves) > 0:
                                         print "Releasing worker", freed_worker.wid, freed_worker.address
-                                        self.release_worker(freed_worker)
-                                        self.pendingremoves -= 1
+                                        self.release_worker(freed_worker, self.pendingremoves[0])
+                                        self.pendingremoves = self.pendingremoves[1:]
                                         freed_worker = None
                                 elif freed_worker.hwspec_version != self.current_hwspec_version:
                                         if len(self.pendingreplacements) == 0:
                                                 raise Exception("No pending replacements, but worker %s version %d does not match current version %d?" % 
                                                                 (freed_worker.address, freed_worker.hwspec_version, self.current_hwspec_version))
                                         print "Replacing worker", freed_worker.wid, freed_worker.address, "with", self.pendingreplacements[-1].wid, self.pendingreplacements[-1].address
-                                        self.release_worker(freed_worker)
+                                        self.release_worker(freed_worker, None)
                                         freed_worker = self.pendingreplacements[-1]
                                         self.workers[freed_worker.wid] = freed_worker
                                         self.pendingreplacements.pop()
@@ -326,18 +333,21 @@ class TinyScheduler:
 			self.trystartprocs()
 			return json.dumps({"wid": newworker.wid})
 
-	def delworker(self):
+	def delworker(self, callbackaddress=None):
 
 		with self.lock:
+
+                        if callbackaddress is not None:
+                                callbackaddress = self.parsecallbackaddress(callbackaddress)
 
                         if len(self.workers) == 0:
                                 raise Exception("No workers in this class pool")
                         if len(self.freeworkers) == 0:
-                                self.pendingremoves += 1
+                                self.pendingremoves.append(callbackaddress)
                         else:
                                 todel = self.freeworkers[-1]
                                 self.freeworkers.pop()
-                                self.release_worker(todel)
+                                self.release_worker(todel, callbackaddress)
 			return json.dumps({"status": "ok"})
 
 	def modhwspec(self, addresses, newspec):
@@ -364,13 +374,13 @@ class TinyScheduler:
                         # Step 1: immediately release any pendingreplacements, which never
                         # made it into the live worker pool.
                         for w in self.pendingreplacements:
-                                self.release_worker(w, False)
+                                self.release_worker(w, None, False)
 
                         # Step 2: immediately replace any free workers.
                         freeworkers = self.freeworkers
                         self.freeworkers = []
                         for w in freeworkers:
-                                self.release_worker(w)
+                                self.release_worker(w, None)
                                 replace_with = new_workers[-1]
                                 new_workers.pop()
                                 self.workers[replace_with.wid] = replace_with
@@ -384,13 +394,17 @@ class TinyScheduler:
 
 			return json.dumps({"wids": new_worker_ids})
 
+        def parsecallbackaddress(self, address):
+                if address.startswith("http://"):
+                        address = address[7:]
+                host, address = address.split("/", 1)
+                address = "/%s" % address
+                return host, address
+
         def registerreleasecallback(self, address):
 
                 with self.lock:
-                        if address.startswith("http://"):
-                                address = address[7:]
-                        self.callback_host, self.callback_address = address.split("/", 1)
-                        self.callback_address = "/%s" % self.callback_address
+                        self.callback_host, self.callback_address = self.parsecallbackaddress(address)
 
         def lsworkers(self):
 
