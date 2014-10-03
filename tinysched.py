@@ -24,6 +24,7 @@ class Worker:
 		self.address = address
                 self.hwspec_version = hwsv
                 self.wid = wid
+                self.busy = False
 
         def to_dict(self):
                 return self.__dict__
@@ -45,6 +46,8 @@ class Task:
                 if self.worker is not None:
                         d["worker"] = self.worker.address
                 del d["sched"]
+                if self.start_time is not None:
+                        d["start_time"] = self.start_time.isoformat()
                 return d
 
         def piddir(self):
@@ -234,6 +237,7 @@ class TinyScheduler:
 
                 np.proc = subprocess.Popen(cmdline)
                 np.worker = runworker
+                runworker.busy = True
                 np.start_time = datetime.datetime.now()
                 self.pending.pop(0)
 
@@ -281,6 +285,7 @@ class TinyScheduler:
                                 
 				del self.procs[pid]
                                 freed_worker = rp.worker
+                                freed_worker.busy = False
 
                                 if len(self.pendingremoves) > 0:
                                         print "Releasing worker", freed_worker.wid, freed_worker.address

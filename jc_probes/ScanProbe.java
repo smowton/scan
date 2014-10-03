@@ -3,6 +3,7 @@ import java.util.HashMap;
 import java.util.Random;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.net.URL;
 import java.net.MalformedURLException;
 import java.io.InputStream;
@@ -60,6 +61,7 @@ public class ScanProbe extends Probe{
 			this.addProbeProperty(idx + 1, c + "_workPerHour",ProbePropertyType.DOUBLE,"", c + " work units per hour");
 			this.addProbeProperty(idx + 2, c + "_avgCpuUsage", ProbePropertyType.DOUBLE, "", c + " average task CPU usage");
 			this.addProbeProperty(idx + 3, c + "_avgMemoryUsage", ProbePropertyType.DOUBLE, "", c + " average task memory usage");
+			this.addProbeProperty(idx + 4, c + "_workerUtilisation", ProbePropertyType.DOUBLE, "", c + " worker pool utilisation (1 = all active, 0 = all idle)");
 
 			idx += 4;
 
@@ -100,9 +102,41 @@ public class ScanProbe extends Probe{
 		InputStream is = getStream("lsprocs?classname=" + c);
 		JSONTokener tok = new JSONTokener(is);
 		JSONObject a = new JSONObject(tok);
-		long ret = a.length();
+		long ret = 0;
+
+		for(Iterator<String> keys = a.keys(); keys.hasNext();) {
+
+		    JSONObject val = a.getJSONObject(keys.next());
+		    if(val.isNull("worker"))
+			++ret;
+
+		}
+
 		is.close();
 		return ret;
+
+	}
+
+	private double getWorkerUtilisation(String c) throws MalformedURLException, IOException {
+
+		InputStream is = getStream("lsworkers?classname=" + c);
+		JSONTokener tok = new JSONTokener(is);
+		JSONObject a = new JSONObject(tok);
+		long totalWorkers = a.length();
+		long busyWorkers = 0;
+
+		for(Iterator<String> keys = a.keys(); keys.hasNext();) {
+
+			JSONObject val = a.getJSONObject(keys.next());
+			if(val.getBoolean("busy"))
+				++busyWorkers;
+
+		}
+
+		if(totalWorkers == 0)
+			return 0;
+		else
+			return ((double)busyWorkers) / totalWorkers;
 
 	}
 
@@ -133,10 +167,14 @@ public class ScanProbe extends Probe{
 		for(String c : classes) {
 		
 			long qlen = getQueueLength(c);
+			double ut = getWorkerUtilisation(c);
 			double wph = getWorkPerHour(c);
 		
 			values.put(offset + 0, qlen);
 			values.put(offset + 1, wph);
+			values.put(offset + 4, ut);
+
+			System.out.printf("Qlen: %d, wph: %g, utilisation: %g\n", qlen, wph, ut);
 
 			getResourceUsage(values, c, offset);
 
