@@ -9,25 +9,27 @@ import org.json.{JSONTokener, JSONObject}
 class ScanJobRunner(function: CommandLineFunction, val manager: ScanJobManager) extends ShellJobRunner(function) {
 
   val className : String = "linux"
-  var jobId : String = _
+  var jobId : Long = _
 
   override def start() {
 
-    val escaped_cmd = URLEncoder.encode(jobScript.toString, "UTF-8")
+    val escaped_cmd = URLEncoder.encode("sh " + jobScript.toString, "UTF-8")
     val url = "http://%s:%d/addworkitem?classname=%s&fsreservation=0&dbreservation=0&cmd=%s".format(
       manager.scanHost, manager.scanPort, className, escaped_cmd)
     val stream = new URL(url).openStream()
     val tok = new JSONTokener(stream)
     val reply_obj = new JSONObject(tok)
 
-    jobId = reply_obj.getString("pid")
+    jobId = reply_obj.getLong("pid")
 
     updateStatus(RunnerStatus.RUNNING)
     logger.info("Submitted job id: " + jobId)
 
   }
 
-  def updateJobStatus(procmap : Map[(String, String), JSONObject]) = {
+  def updateJobStatus(procmap : Map[(String, Long), JSONObject]) = {
+
+    logger.info("Check job status %s %d".format(className, jobId))
 
     procmap.get((className, jobId)) match {
 
