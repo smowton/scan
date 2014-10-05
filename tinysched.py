@@ -188,6 +188,11 @@ class MulticlassScheduler:
         def ping(self, echo):
                 return json.dumps({"echo": echo})
 
+        @cherrypy.expose
+        def lsallprocs(self):
+                class_json = ['"%s": %s' % (k, v.lsprocs()) for k, v in self.queues.iteritems()]
+                return "{" + ", ".join(class_json) + "}"
+
 class TinyScheduler:
  
         def __init__(self, classspec, httpqueue):
