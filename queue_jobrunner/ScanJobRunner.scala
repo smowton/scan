@@ -5,14 +5,17 @@ import java.net.{URL, URLEncoder}
 
 import org.json.{JSONTokener, JSONObject}
 
-class ScanJobRunner(function: CommandLineFunction, val manager: ScanJobManager) extends CommandLineJobRunner(function) {
+class ScanJobRunner(val function: CommandLineFunction, val manager: ScanJobManager) extends CommandLineJobRunner {
 
   val className : String = function.jobQueue
   var jobId : Long = _
 
   override def start() {
 
-    val escaped_cmd = URLEncoder.encode("sh " + jobScript.toString, "UTF-8")
+    val cmd_with_redir = "sh " + jobScript.toString + " > " + function.jobOutputFile.getPath
+    val cmd_with_err = cmd_with_redir + " " + (if (function.jobErrorFile == null) "2>&1" else function.jobErrorFile.getPath)
+
+    val escaped_cmd = URLEncoder.encode(cmd_with_err, "UTF-8")
     val url = "http://%s:%d/addworkitem?classname=%s&fsreservation=0&dbreservation=0&cmd=%s".format(
       manager.scanHost, manager.scanPort, className, escaped_cmd)
     val stream = new URL(url).openStream()
@@ -42,7 +45,7 @@ class ScanJobRunner(function: CommandLineFunction, val manager: ScanJobManager) 
 
   }
 
-  override def tryStop() { }
+  def tryStop() { }
 
 }
 
