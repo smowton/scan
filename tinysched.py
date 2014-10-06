@@ -113,10 +113,17 @@ class MulticlassScheduler:
                 else:
                         self.classes = [{"name": "linux",
                                          "user": "user",
-                                         "respath": "/home/user/csmowton/scan/getres.py"},
+                                         "respath": "/home/user/csmowton/scan/getres.py",
+                                         "init_hwspec": {
+                                                 "cores": 1,
+                                                 "memory": 4096
+                                         }},
                                         {"name": "windows",
                                          "user": "Administrator",
-                                         "respath": "/home/Administrator/getres.py"}]
+                                         "respath": "/home/Administrator/getres.py",
+                                         "init_hwspec": {
+                                                 "cores": 1,
+                                                 "memory": 4096}}]
                 self.queues = dict()
                 for c in self.classes:
                         self.queues[c["name"]] = TinyScheduler(c, httpqueue)
@@ -207,7 +214,7 @@ class TinyScheduler:
                 self.pendingreplacements = []
                 self.pendingremoves = []
                 self.current_hwspec_version = 0
-                self.current_hwspec = dict()
+                self.current_hwspec = {k: str(v) for k, v in classspec["init_hwspec"].iteritems()}
                 self.nextpid = 0
                 self.nextwid = 0
                 self.classspec = classspec
