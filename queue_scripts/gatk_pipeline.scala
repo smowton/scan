@@ -1,5 +1,6 @@
 import org.broadinstitute.sting.queue.QScript
 import org.broadinstitute.sting.queue.function.{CommandLineFunction, JavaCommandLineFunction}
+import org.broadinstitute.sting.queue.function.scattergather.ScatterGatherableFunction
 import org.broadinstitute.sting.queue.extensions.gatk._
 import org.broadinstitute.sting.gatk.walkers.genotyper.GenotypeLikelihoodsCalculationModel
 
@@ -33,6 +34,9 @@ class VarCallingPipeline extends QScript {
   @Argument
   var workdir : String = _
 
+  @Argument
+  var scattercount : Int = 1
+
   def script {
 
     val realignTargets = new File(pathjoin(workdir, "realign_targets.intervals"))
@@ -45,6 +49,8 @@ class VarCallingPipeline extends QScript {
 
     def gatk_add(c : JavaCommandLineFunction) {
       c.javaMemoryLimit = Some(6)
+      if(c.isInstanceOf[ScatterGatherableFunction])
+        c.asInstanceOf[ScatterGatherableFunction].scatterCount = scattercount
       add(c)
     }
 
@@ -69,26 +75,28 @@ class VarCallingPipeline extends QScript {
 
     gatk_add(IR)
 
-    val BR = new BaseRecalibrator
+    val BR = new BaseRecalibrator with ExtraArgs
     BR.reference_sequence = genome
     BR.input_file = List(realignedBam)
     BR.knownSites = List(indels, dbsnp)
     BR.covariate = List("ReadGroupCovariate", "QualityScoreCovariate", "CycleCovariate", "ContextCovariate")
     BR.out = recalData
     BR.jobQueue = "gatk_br"
+    BR.extraArgs = List("-nct", "$SCAN_CORES")
 
     gatk_add(BR)
 
-    val PR = new PrintReads
+    val PR = new PrintReads with ExtraArgs
     PR.reference_sequence = genome
     PR.input_file = List(realignedBam)
     PR.BQSR = recalData
     PR.out = recalBam
     PR.jobQueue = "gatk_pr"
+    PR.extraArgs = List("-nct", "$SCAN_CORES")
 
     gatk_add(PR)
 
-    val UG = new UnifiedGenotyper
+    val UG = new UnifiedGenotyper with ExtraArgs
     UG.reference_sequence = genome
     UG.input_file = List(recalBam)
     UG.glm = GenotypeLikelihoodsCalculationModel.Model.BOTH
@@ -97,6 +105,7 @@ class VarCallingPipeline extends QScript {
     UG.dbsnp = dbsnp
     UG.out = unfilteredCalls
     UG.jobQueue = "gatk_ug"
+    UG.extraArgs = List("-nt", "$SCAN_CORES")
 
     gatk_add(UG)
 
@@ -112,12 +121,13 @@ class VarCallingPipeline extends QScript {
 
     gatk_add(VF)
 
-    val VE = new VariantEval
+    val VE = new VariantEval with ExtraArgs
     VE.reference_sequence = genome
     VE.dbsnp = dbsnp
     VE.eval = List(filteredCalls)
     VE.out = finalCalls
     VE.jobQueue = "gatk_ve"
+    VE.extraArgs = List("-nt", "$SCAN_CORES")
 
     gatk_add(VE)
 
