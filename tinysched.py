@@ -12,6 +12,7 @@ import Queue
 import datetime
 import traceback
 import websupport
+import imp
 
 import scan_templates
 import integ_analysis.results
@@ -105,15 +106,17 @@ class SubmitUI:
 
 class MulticlassScheduler:
 
-        def __init__(self, httpqueue):
+        def __init__(self, httpqueue, classfile):
 
-                # TODO: stop hardcoding classes
-                self.classes = [{"name": "linux",
-                                 "user": "user",
-                                 "respath": "/home/user/csmowton/scan/getres.py"},
-                                {"name": "windows",
-                                 "user": "Administrator",
-                                 "respath": "/home/Administrator/getres.py"}]
+                if classfile is not None:
+                        self.classes = imp.load_source("user_classes_module", classfile).getclasses()
+                else:
+                        self.classes = [{"name": "linux",
+                                         "user": "user",
+                                         "respath": "/home/user/csmowton/scan/getres.py"},
+                                        {"name": "windows",
+                                         "user": "Administrator",
+                                         "respath": "/home/Administrator/getres.py"}]
                 self.queues = dict()
                 for c in self.classes:
                         self.queues[c["name"]] = TinyScheduler(c, httpqueue)
@@ -559,7 +562,7 @@ class TaskPoller:
                 self.stop_event.set()
 
 httpqueue = HttpQueue()
-sched = MulticlassScheduler(httpqueue)
+sched = MulticlassScheduler(httpqueue, sys.argv[1] if len(sys.argv) >= 2 else None)
 poller = TaskPoller(sched)
 
 def thread_stop():

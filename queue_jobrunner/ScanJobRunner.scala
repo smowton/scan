@@ -8,7 +8,7 @@ import org.json.{JSONTokener, JSONObject}
 
 class ScanJobRunner(function: CommandLineFunction, val manager: ScanJobManager) extends ShellJobRunner(function) {
 
-  val className : String = "linux"
+  val className : String = function.jobQueue
   var jobId : Long = _
 
   override def start() {
