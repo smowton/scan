@@ -1,12 +1,11 @@
-import org.broadinstitute.sting.queue.engine.shell.{ShellJobManager, ShellJobRunner}
-import org.broadinstitute.sting.queue.engine.RunnerStatus
+import org.broadinstitute.sting.queue.engine.{CommandLineJobRunner, RunnerStatus}
 import org.broadinstitute.sting.queue.function.CommandLineFunction
 
 import java.net.{URL, URLEncoder}
 
 import org.json.{JSONTokener, JSONObject}
 
-class ScanJobRunner(function: CommandLineFunction, val manager: ScanJobManager) extends ShellJobRunner(function) {
+class ScanJobRunner(function: CommandLineFunction, val manager: ScanJobManager) extends CommandLineJobRunner(function) {
 
   val className : String = function.jobQueue
   var jobId : Long = _

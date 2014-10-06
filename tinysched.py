@@ -235,6 +235,7 @@ class TinyScheduler:
                 cmd = np.cmd
                 for key, val in self.current_hwspec.iteritems():
                         cmd = cmd.replace("%%%%%s%%%%" % key, val)
+                        cmd = "export SCAN_%s=%s; %s" % (key.upper(), val, cmd)
 
                 # Prepend bookkeeping:
                 cmd = "mkdir -p %s; echo $$ > %s; %s" % (np.piddir(), np.pidfile(), cmd)

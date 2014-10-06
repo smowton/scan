@@ -1,9 +1,21 @@
 import org.broadinstitute.sting.queue.QScript
-import org.broadinstitute.sting.queue.function.JavaCommandLineFunction
+import org.broadinstitute.sting.queue.function.{CommandLineFunction, JavaCommandLineFunction}
 import org.broadinstitute.sting.queue.extensions.gatk._
 import org.broadinstitute.sting.gatk.walkers.genotyper.GenotypeLikelihoodsCalculationModel
 
 import java.io.File
+
+trait ExtraArgs extends CommandLineFunction {
+
+  var extraArgs : List[String] = _
+
+  // This must be declared abstract to signify that this trait is not good enough
+  // on its own to provide a commandLine -- it must be mixed in with some concrete
+  // implementation, as otherwise it would try to call CommandLineFunction::commandLine
+  // which is abstract.
+  abstract override def commandLine : String = super.commandLine + repeat(prefix="", params=extraArgs, format="%s", escape=false)
+
+}
 
 class VarCallingPipeline extends QScript {
 
@@ -36,12 +48,13 @@ class VarCallingPipeline extends QScript {
       add(c)
     }
 
-    val RTC = new RealignerTargetCreator
+    val RTC = new RealignerTargetCreator with ExtraArgs
     RTC.reference_sequence = genome
     RTC.input_file = List(input)
     RTC.known = List(indels)
     RTC.out = realignTargets
     RTC.jobQueue = "gatk_rtc"
+    RTC.extraArgs = List("-nt", "$SCAN_CORES")
     
     gatk_add(RTC)
 
