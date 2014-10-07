@@ -18,6 +18,18 @@ trait ExtraArgs extends CommandLineFunction {
 
 }
 
+trait MeasureReference extends CommandLineGATK {
+
+  override def commandLine : String = "expr $(stat -c %s " + reference_sequence.getPath + ") / 1000000 > $SCAN_WORKCOUNT_FILE; " + super.commandLine
+
+}
+
+trait MeasureInput extends CommandLineGATK {
+
+  override def commandLine : String = "expr $(stat -c %s " + input_file(0).getPath + ") / 1000000 > $SCAN_WORKCOUNT_FILE; " + super.commandLine
+
+}
+
 class VarCallingPipeline extends QScript {
 
   def pathjoin(path1 : String, path2 : String) : String = new File(new File(path1), path2).getPath
@@ -70,7 +82,7 @@ class VarCallingPipeline extends QScript {
 
     }
 
-    val RTC = new RealignerTargetCreator with ExtraArgs
+    val RTC = new RealignerTargetCreator with ExtraArgs with MeasureReference
     RTC.reference_sequence = genome
     RTC.input_file = List(input)
     RTC.known = List(indels)
@@ -80,7 +92,7 @@ class VarCallingPipeline extends QScript {
     
     gatk_add(RTC)
 
-    val IR = new IndelRealigner
+    val IR = new IndelRealigner with MeasureInput
     IR.reference_sequence = genome
     IR.known = List(indels)
     IR.input_file = List(input)
@@ -91,7 +103,7 @@ class VarCallingPipeline extends QScript {
 
     gatk_add(IR)
 
-    val BR = new BaseRecalibrator with ExtraArgs
+    val BR = new BaseRecalibrator with ExtraArgs with MeasureReference
     BR.reference_sequence = genome
     BR.input_file = List(realignedBam)
     BR.knownSites = List(indels, dbsnp)
@@ -102,7 +114,7 @@ class VarCallingPipeline extends QScript {
 
     gatk_add(BR)
 
-    val PR = new PrintReads with ExtraArgs
+    val PR = new PrintReads with ExtraArgs with MeasureInput
     PR.reference_sequence = genome
     PR.input_file = List(realignedBam)
     PR.BQSR = recalData
@@ -112,7 +124,7 @@ class VarCallingPipeline extends QScript {
 
     gatk_add(PR)
 
-    val UG = new UnifiedGenotyper with ExtraArgs
+    val UG = new UnifiedGenotyper with ExtraArgs with MeasureReference
     UG.reference_sequence = genome
     UG.input_file = List(recalBam)
     UG.glm = GenotypeLikelihoodsCalculationModel.Model.BOTH
@@ -125,7 +137,7 @@ class VarCallingPipeline extends QScript {
 
     gatk_add(UG)
 
-    val VF = new VariantFiltration
+    val VF = new VariantFiltration with MeasureInput
     VF.reference_sequence = genome
     VF.variant = unfilteredCalls
     VF.out = filteredCalls
@@ -137,7 +149,7 @@ class VarCallingPipeline extends QScript {
 
     gatk_add(VF)
 
-    val VE = new VariantEval with ExtraArgs
+    val VE = new VariantEval with ExtraArgs with MeasureReference
     VE.reference_sequence = genome
     VE.dbsnp = dbsnp
     VE.eval = List(filteredCalls)

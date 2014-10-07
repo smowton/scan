@@ -42,7 +42,7 @@ while True:
         if len(workers) == 0:
             utilisation = 1.0
         else:
-            utilisation = len([w for w in workers.itervalues() if w["busy"]]) / len(workers)
+            utilisation = float(len([w for w in workers.itervalues() if w["busy"]])) / len(workers)
 
         if queuelen > 0:
             if len(free_workers) != 0:

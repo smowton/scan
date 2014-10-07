@@ -51,15 +51,17 @@ class Task:
                         d["start_time"] = self.start_time.isoformat()
                 return d
 
-        def piddir(self):
-                return "/tmp/scanpids/%d" % self.pid
+        def taskdir(self):
+                return "/tmp/scantask/%d" % self.pid
 
         def pidfile(self):
-                return "%s/pid" % self.piddir()
+                return "%s/pid" % self.taskdir()
+
+        def workcountfile(self):
+                return "%s/workcount" % self.taskdir()
 
         def getresusage(self):
-                cmd = copy.deepcopy(runner)
-                cmd.append("%s@%s" % (self.sched.classspec["user"], self.worker.address))
+                cmd = self.sched.getrunner(self.worker)
                 cmd.append(self.sched.classspec["respath"])
                 cmd.append(self.pidfile())
                 jsstats = json.loads(subprocess.check_output(cmd))
@@ -215,6 +217,7 @@ class TinyScheduler:
                 self.pendingremoves = []
                 self.current_hwspec_version = 0
                 self.current_hwspec = {k: str(v) for k, v in classspec["init_hwspec"].iteritems()}
+                self.lastwph = 0
                 self.nextpid = 0
                 self.nextwid = 0
                 self.classspec = classspec
@@ -223,6 +226,11 @@ class TinyScheduler:
                 self.httpqueue = httpqueue
                 self.lock = threading.Lock()
 
+        def getrunner(self, worker):
+                cmdline = copy.deepcopy(runner)
+                cmdline.append("%s@%s" % (self.classspec["user"], worker.address))
+                return cmdline
+                
         def trystartproc(self):
 
                 if len(self.pending) == 0:
@@ -234,21 +242,21 @@ class TinyScheduler:
                 runworker = self.freeworkers[-1]
                 self.freeworkers.pop()
 
-                cmdline = copy.deepcopy(runner)
-                cmdline.append("%s@%s" % (self.classspec["user"], runworker.address))
+                cmdline = self.getrunner(runworker)
 
                 np = self.pending[0]
 
+                # Expose the current environment:
                 cmd = np.cmd
                 for key, val in self.current_hwspec.iteritems():
                         cmd = cmd.replace("%%%%%s%%%%" % key, val)
                         cmd = "export SCAN_%s=%s; %s" % (key.upper(), val, cmd)
 
                 # Prepend bookkeeping:
-                cmd = "mkdir -p %s; echo $$ > %s; %s" % (np.piddir(), np.pidfile(), cmd)
+                cmd = "mkdir -p %s; export SCAN_WORKCOUNT_FILE=%s; echo $$ > %s; %s" % (np.taskdir(), np.workcountfile(), np.pidfile(), cmd)
 
                 cmdline.append(cmd)
-                
+
                 print "Start process", np.pid, cmdline
 
                 np.proc = subprocess.Popen(cmdline)
@@ -298,7 +306,24 @@ class TinyScheduler:
 			if ret is not None:
 
                                 print "Task", pid, "finished"
-                                
+                        
+                                try:
+                                        read_proc = self.getrunner(rp.worker)
+                                        read_proc.append("cat %s" % rp.workcountfile())
+                                        workdone = int(subprocess.check_output(read_proc))
+                                        if workdone == 0:
+                                                workdone = 1
+                                except subprocess.CalledProcessError:
+                                        print "Can't read from", rp.workcountfile(), "assuming one unit of work completed"
+                                        workdone = 1
+                                except ValueError:
+                                        print "Junk in", rp.workcountfile(), "assuming one unit of work completed"
+                                        workdone = 1
+
+                                runhours = (datetime.datetime.now() - rp.start_time).total_seconds() / (60 * 60)
+                                self.lastwph = float(workdone) / runhours
+                                print "Task completed %g units of work in %g hours; new wph = %g" % (workdone, runhours, self.lastwph)
+        
 				del self.procs[pid]
                                 freed_worker = rp.worker
                                 freed_worker.busy = False
@@ -493,7 +518,7 @@ class TinyScheduler:
                                            "mem": sum(mem_usage_samples) / len(mem_usage_samples)})
 
         def getwph(self):
-                return "1"
+                return str(self.lastwph)
 
 class HttpQueue:
 
