@@ -63,7 +63,7 @@ public class ScanProbe extends Probe{
 			this.addProbeProperty(idx + 3, c + "_avgMemoryUsage", ProbePropertyType.DOUBLE, "", c + " average task memory usage");
 			this.addProbeProperty(idx + 4, c + "_workerUtilisation", ProbePropertyType.DOUBLE, "", c + " worker pool utilisation (1 = all active, 0 = all idle)");
 
-			idx += 4;
+			idx += 5;
 
 		}
 	}
@@ -152,8 +152,8 @@ public class ScanProbe extends Probe{
 		InputStream is = getStream("getresusage?classname=" + c);
 		JSONTokener tok = new JSONTokener(is);
 		JSONObject stats = new JSONObject(tok);
-		values.put(offset + 2, stats.get("cpu"));
-		values.put(offset + 3, stats.get("mem"));
+		values.put(offset + 2, stats.getDouble("cpu"));
+		values.put(offset + 3, stats.getDouble("mem"));
 		is.close();
 
 	}
@@ -177,6 +177,8 @@ public class ScanProbe extends Probe{
 			System.out.printf("Qlen: %d, wph: %g, utilisation: %g\n", qlen, wph, ut);
 
 			getResourceUsage(values, c, offset);
+
+			offset += 5;
 
 		}
 				
