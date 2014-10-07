@@ -48,10 +48,26 @@ class VarCallingPipeline extends QScript {
     val finalCalls = new File(pathjoin(workdir, "final_calls.vcf"))
 
     def gatk_add(c : JavaCommandLineFunction) {
-      c.javaMemoryLimit = Some(6)
-      if(c.isInstanceOf[ScatterGatherableFunction])
-        c.asInstanceOf[ScatterGatherableFunction].scatterCount = scattercount
+
+      // Received wisdom re: GATK and memory demand:
+      c.javaMemoryLimit = Some(2)
+
+      if(c.isInstanceOf[ScatterGatherableFunction]) {
+
+        val sg = c.asInstanceOf[ScatterGatherableFunction]
+        sg.scatterCount = scattercount
+
+        // Redirect gather functions that execute out of process
+        // to use a different task class, so as to expose the
+        // cost of the gather stage.
+        sg.setupGatherFunction = {
+          case (x : CommandLineFunction, y) => x.jobQueue = x.originalFunction.asInstanceOf[CommandLineFunction].jobQueue + "_gather"
+        }
+
+      }
+
       add(c)
+
     }
 
     val RTC = new RealignerTargetCreator with ExtraArgs
