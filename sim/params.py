@@ -2,6 +2,7 @@
 # The customisable, semi-fixed aspects of the simulation
 
 import math
+import random
 
 # Processing times: how many time units will it take to process the given number of records?
 # When threading or splitting are used, the record count still represents the entire job.
@@ -13,10 +14,13 @@ def correct_thread_efficiency(thread_count):
     # Complete guess, to be replaced by profiled data:
     return float(thread_count) * (1 - (float(thread_count) / 48))
 
-def processing_time(record_count, thread_count, split_count, phase_index):
+def processing_time(record_count, thread_count, split_count, phase_index, include_gather):
 
     thread_count = correct_thread_efficiency(thread_count)
-    return processing_times[phase_index](record_count, thread_count, split_count)
+    ret = processing_times[phase_index](record_count, thread_count, split_count)
+    if include_gather:
+        ret += gather_time(record_count, phase_index)
+    return ret
 
 task_overhead = 50
 
@@ -28,20 +32,29 @@ def input_dependent(record_count, thread_count, split_count):
 
     return (float(record_count) / (thread_count * split_count)) + task_overhead
 
+def input_dependent_nothreads(record_count, thread_count, split_count):
+
+    return (float(record_count) / (split_count)) + task_overhead
+
 processing_times = [
     input_independent,
-    input_dependent,
+    input_dependent_nothreads,
     input_dependent,
     input_dependent,
     input_independent,
-    input_dependent,
+    input_dependent_nothreads,
     input_independent
 ]
 
-def scatter_time(record_count, phase_index):
-
-    # All scatter tasks are currently accomplished more or less immediately. Call it 1% of a genome-sized run, so...
-    return 10
+can_split_phase = [
+    True,
+    True,
+    True,
+    True,
+    True,
+    True,
+    False
+]
 
 def gather_time(record_count, phase_index):
 
@@ -56,12 +69,24 @@ def reward(total_pipeline_latency, record_count):
 
     if total_pipeline_latency < 5000:
         return 1500
-    elif total_pipeline_latency < 8000:
-        return 1000
     elif total_pipeline_latency < 11000:
-        return 500
+        score = float(11000 - total_pipeline_latency) / 6000
+        return 500 + (score * 1000)
     else:
         return 0
+
+core_cost_tiers = [{"cores": 100, "cost": 0.02}, {"cores": -1, "cost": 0.1}]
+
+def core_tier(cores):
+
+    for i, tier in enumerate(core_cost_tiers):
+        if tier["cores"] == -1:
+            return i
+        cores -= tier["cores"]
+        if cores <= 0:
+            return i
+
+    raise Exception("Bad core_cost_tiers")
 
 def concurrent_cores_hired_to_cost(cores):
 
@@ -76,3 +101,7 @@ dynamic_core_choices = [1, 2, 4, 8, 16]
 dynamic_core_greed_factor = 1.5
 
 vm_startup_delay = 50
+
+def predicted_to_real_time(predicted_time):
+
+    return predicted_time * random.uniform(0.9, 1.1)

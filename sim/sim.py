@@ -8,7 +8,7 @@ import random
 
 class SimState:
 
-    def __init__(self, nmachines, machine_specs, arrival_process, stop_time, debug):
+    def __init__(self, nmachines, machine_specs, phase_splits, arrival_process, stop_time, debug):
 
         self.now = 0
         self.event_queue = []
@@ -16,6 +16,7 @@ class SimState:
         self.active_machines = [[] for x in machine_specs]
         self.nmachines = nmachines
         self.machine_specs = machine_specs
+        self.phase_splits = phase_splits
         self.arrival_process = arrival_process
         self.total_cost = 0
         self.total_reward = 0
@@ -30,7 +31,14 @@ class SimState:
         if self.nmachines[0] is not None:
             return sum([x * y for (x, y) in zip(self.nmachines, self.machine_specs)])
         else:
-            return sum([sum([m.active_cores for m in active_list]) for active_list in self.active_machines])
+            return sum([sum([m.stage.active_cores for m in active_list]) for active_list in self.active_machines])
+
+    def active_machine_count(self):
+
+        if self.nmachines[0] is not None:
+            return sum(self.nmachines)
+        else:
+            return sum([len(l) for l in self.active_machines])
 
     def run(self):
 
@@ -48,25 +56,44 @@ class SimState:
                 print self.now
 
             for i, active_list in enumerate(self.active_machines):
-                print "%g,%d,%d" % (self.now, i, len(active_list))
+                print "%g,%d,%d,%d" % (self.now, i, sum([x.stage.active_cores for x in active_list]), len(active_list))
 
             event.run(self)
 
-    def try_run_job(self, job, at_head = False):
+    # Add a new job to the appropriate queue. Try to run it right away
+    # if the queue was empty.
+    def queue_job_next_stage(self, job):
 
-        if job.done():
-            job.credit_reward(self)
-            return
+        nsplits = self.phase_splits[job.current_stage] if not job.gather_started else 1
+        stage = JobStage(job, nsplits)
 
-        queueidx = job.next_stage if len(self.machine_queues) > 1 else 0
+        queueidx = stage.queue_idx(self)
         queue = self.machine_queues[queueidx]
 
-        run_now = True
-        could_run_now = True
+        queue_was_empty = len(queue) == 0
+        
+        for i in range(nsplits):
+            split = JobSplit(stage, i)
+            queue.append(split)
+
+        if queue_was_empty:
+            while self.try_run_next_split(queueidx):
+                pass
+
+    # If possible, run a split for the SplitTracker at the head of the given queue
+    def try_run_next_split(self, queueidx):
+
+        queue = self.machine_queues[queueidx]
+        if len(queue) == 0:
+            return False
+
+        split = queue[0]
 
         def should_defer():
 
-            # Don't defer if the queue is empty.
+            # Decide whether to defer a single split of a job. Thus all costs are for a single split, not the whole job.
+
+            # Don't defer if there is no work running.
             if len(self.active_machines[queueidx]) == 0:
                 return False
 
@@ -75,61 +102,124 @@ class SimState:
             if self.nmachines[queueidx] is not None:
                 return False
             
-            # Would we save cost by waiting for an existing machine instead of hiring another?
+            # If hiring now would draw from the lowest cost tier then just do it.
             active = self.active_cores()
             cores_per_machine = self.machine_specs[queueidx]
             if cores_per_machine is None:
+                cores_per_machine = split.stage.active_cores
+            if cores_per_machine is None:
                 cores_per_machine = 1
-            costs = map(params.concurrent_cores_hired_to_cost, range(active - cores_per_machine, active + (2 * cores_per_machine), cores_per_machine))
-            saving = (costs[2] - costs[1]) - (costs[1] - costs[0])
-            if saving <= 0:
+            hire_now_tier = params.core_tier(active + cores_per_machine)
+            if hire_now_tier == 0:
                 return False
-            
-            # How much would we save, considering when the next job will finish?
-            defer_until = min([x.stage_finish_time - self.now for x in self.active_machines[queueidx]])
-            saving *= (defer_until - self.now)
 
-            # Roughly how much time to go for this job? Since we're at a cost knee point,
-            # assume we would favour running it with one core throughout the remainder of the run
-            # if we have a choice.
-            time = job.estimate_finish_time(self, dynamic_cores_per_stage = 1)
+            # Would we save cost by waiting to drop a cost tier instead of hiring now?
+            this_split_time = split.stage.estimate_split_time(self, dynamic_cores = 1)
+            cores_to_drop_tier = (active + cores_per_machine) - sum([x["cores"] for x in params.core_cost_tiers[:hire_now_tier]])
+            saving = params.core_cost_tiers[hire_now_tier]["cost"] - params.core_cost_tiers[hire_now_tier - 1]["cost"]
+            saving *= this_split_time
 
-            # What would it cost to extend that time by defer_until - now?
-            reward_start_now = job.estimate_reward(time)
-            reward_start_deferred = job.estimate_reward(time + (defer_until - self.now))
+            # What would it cost to extend that time by the expected queueing time, vs. starting it now?
+            # Firstly how long a delay are we proposing? This is the time until enough active machines finish:
+            next_finish_splits = sorted(self.active_machines[queueidx], key = lambda x: x.split_finish_time, reverse = True)
+
+            i = 0
+            defer_delay = None
+            while cores_to_drop_tier >= 0 and i <= len(next_finish_splits):
+                cores_to_drop_tier -= next_finish_splits[-i].stage.active_cores
+                defer_delay = next_finish_splits[-i].split_finish_time - self.now
+
+            if cores_to_drop_tier > 0:
+                splits_to_drop_tier = (cores_to_drop_tier + (cores_per_machine - 1)) / cores_per_machine
+                defer_delay += (this_split_time * (float(jobs_to_drop_tier) / len(self.active_machines[queueidx])))
+
+            def job_defer_penalty(qjob, start_delay, defer_delay):
+
+                # How long will this job's run be in all?
+                # Time already passed:
+                total_duration = ((self.now - qjob.start_time) if qjob.start_time is not None else 0)
+
+                # Time waiting to get to the front of the queue:
+                total_duration += start_delay
+
+                # Time to run remaining queue stages:
+                # Since this is a cost knee point, assume we would use one core if given the choice.
+                # If we are using splits then part of the job may already be running; however
+                # given this piece is still in the queue it will take at least one split duration to finish.
+                total_duration += qjob.estimate_finish_time(self, dynamic_cores_per_stage = 1)                
+                
+                reward_start_now = qjob.estimate_reward(total_duration)
+                reward_start_deferred = qjob.estimate_reward(total_duration + defer_delay)
+                return reward_start_now - reward_start_deferred
             
-            balance = saving - (reward_start_now - reward_start_deferred)
+            # Assumption here: none of the jobs queued behind me will themselves skip forwards
+            # by hiring another machine.
+
+            next_start_time = self.now
+            total_defer_penalty = 0
+            unique_jobs = set()
+
+            for qsplit in queue:
+
+                qjob = qsplit.stage.job
+
+                # There might be multiple splits of the same job queued up.
+                # Don't double-count the penalty for slowing the job down (but do bump the start time)
+                if qjob not in unique_jobs:
+                    total_defer_penalty += job_defer_penalty(qjob, next_start_time - self.now, defer_delay)
+                unique_jobs += qjob
+
+                if len(next_finish_splits) != 0:
+                    next_start_time = next_finish_splits.pop().split_finish_time
+                else:
+                    # Estimate: on average splits further back in the queue will get to start on average
+                    # every stage_time / n_active_splits seconds.
+                    next_start_time += (qsplit.stage.estimate_split_time(self, dynamic_cores = 1) / len(self.active_machines[queueidx]))
+                
+            balance = saving - total_defer_penalty
+
             if self.debug:
-                print "Considered deferring", str(job), "until", defer_until, "saving", saving, "rewards", reward_start_now, reward_start_deferred, "balance", balance
+                print "Considered deferring", str(split), "for", defer_delay, "saving", saving, "qlen", len(queue), "total defer penalty", total_defer_penalty, "balance", balance
                 
             # Avoid silly FP errors when the balance is nearly zero
             return balance > 1
 
         def pick_dynamic_cores():
 
-            if greed_factor == 1:
+            # Select the number of cores for a *job* stage. This means that when using splits, we are choosing for *all* of them.
+
+            if params.dynamic_core_greed_factor == 1:
+                return 1
+
+            # Gather stages are always single-cored.
+            if split.stage.is_gather:
                 return 1
 
             best_cores = 1
             best_reward = 0
 
+            job = split.stage.job
+
+            active = self.active_cores()
             time_already_passed = self.now - (job.start_time if job.start_time is not None else self.now)
-            baseline_stage_time = job.estimate_stage_time(self, dynamic_cores = 1)
-            baseline_stage_cost = (params.concurrent_cores_hired_to_cost(active_cores + 1) - params.concurrent_cores_hired_to_cost(active_cores)) * baseline_stage_time
-            baseline_rest_time = job.estimate_finish_time(self, dynamic_cores_per_stage = 1, from_stage = job.next_stage + 1)
+            baseline_stage_time = job.estimate_stage_time(self, dynamic_cores = 1, include_gather_time = True)
+            baseline_stage_cost = (params.concurrent_cores_hired_to_cost(active + 1) - params.concurrent_cores_hired_to_cost(active)) * baseline_stage_time
+            baseline_rest_time = job.estimate_finish_time(self, dynamic_cores_per_stage = 1, from_stage = job.current_stage + 1)
             baseline_total_time = baseline_stage_time + baseline_rest_time + time_already_passed
 
             for cores in params.dynamic_core_choices[1:]:
 
                 # How much reward for speeding the stage up, assuming all other stages run as baseline?
-                stage_time = job.estimate_stage_time(self, dynamic_cores = cores) 
+                stage_time = job.estimate_stage_time(self, dynamic_cores = cores, include_gather_time = True) 
                 total_time = time_already_passed + stage_time + baseline_rest_time
                 reward = job.estimate_reward(total_time) - job.estimate_reward(baseline_total_time)
 
                 # How much cost for hiring the multi-core version?
+                # Note that the gather stage is unaltered, so we consider the *split* time here.
+                split_time = split.stage.estimate_split_time(self, dynamic_cores = cores)
                 active_cores = self.active_cores()
-                active_jobs = sum([len(x) for x in self.active_machines])
-                stage_cost = (params.concurrent_cores_hired_to_cost(active_cores + cores) - params.concurrent_cores_hired_to_cost(active_cores)) * stage_time
+                active_splits = sum([len(x) for x in self.active_machines])
+                split_cost = (params.concurrent_cores_hired_to_cost(active_cores + cores) - params.concurrent_cores_hired_to_cost(active_cores)) * split_time
 
                 # How much cost because we'll force future tasks to delay or reduce their core count?
                 # The greed factor is a number indicating what multiplier on top of current utilisation we should
@@ -137,24 +227,30 @@ class SimState:
                 # A value of 1 produces maximum greed. A value of 10 would assume we're about to be deluged
                 # with work (rising to 10x the current load), and so picking a high core count will do a lot of harm.
 
-                predicted_jobs = (active_jobs * params.dynamic_core_greed_factor) + 1
-                new_jobs = predicted_jobs - active_jobs
-                new_cores = new_jobs * cores
-                new_cores_cost = (params.concurrent_cores_hired_to_cost(active_cores + new_cores) - params.concurrent_cores_hired_to_cost(active_cores)) * stage_time
-                average_cost_per_job = new_cores_cost / new_jobs
-                
-                reward -= average_cost_per_job
+                predicted_splits = (active_splits * params.dynamic_core_greed_factor) + 1
+                new_splits = predicted_splits - active_splits
+                new_cores = new_splits * cores
+                new_cores_cost = (params.concurrent_cores_hired_to_cost(active_cores + new_cores) - params.concurrent_cores_hired_to_cost(active_cores)) * split_time
+                average_cost_per_split = float(new_cores_cost) / new_splits
+
+                if self.debug:
+                    print "Running with", cores, "cores would yield reward", reward, "and average cost", average_cost_per_split, "total", reward - average_cost_per_split
+
+                reward -= average_cost_per_split
 
                 if reward > best_reward:
                     best_reward = reward
                     best_cores = cores
+                    
+            if self.debug:
+                print "Running with", best_cores, "cores"
 
             return best_cores
 
-        if len(queue) > 0 and not at_head:
-            run_now = False
-            could_run_now = False
-        elif self.nmachines[queueidx] is not None and len(self.active_machines[queueidx]) == self.nmachines[queueidx]:
+        run_now = True
+        could_run_now = True
+
+        if self.nmachines[queueidx] is not None and len(self.active_machines[queueidx]) == self.nmachines[queueidx]:
             # No machines available
             run_now = False
             could_run_now = False
@@ -164,37 +260,36 @@ class SimState:
         if not run_now:
             if self.debug:
                 if could_run_now:
-                    print "Deferring", str(job), "queued for machine type", queueidx
+                    print "Will defer", str(split), "queued for machine type", queueidx
                 else:
-                    print "Can't run", str(job), "right away, queued for machine type", queueidx
-            queue.append(job)
+                    print "Can't run", str(split), "right away, queued for machine type", queueidx
             return False
 
-        # Do it now.
+        # Do it now. Remove from queue and determine the next event for this job.
+
+        queue.pop(0)
 
         cores = self.machine_specs[queueidx]
         # Using dynamic vertical scaling?
+        if cores is None:
+            cores = split.stage.active_cores
         if cores is None:
             cores = pick_dynamic_cores()
 
         vm_startup_delay = params.vm_startup_delay if self.nmachines[queueidx] is None else 0
 
-        self.active_machines[queueidx].append(job)
-        job.schedule_next_stage(self, cores, vm_startup_delay)
+        self.active_machines[queueidx].append(split)
+        split.schedule_split(self, cores, vm_startup_delay)
 
         return True
 
-    def release_job_machine(self, job):
+    def release_split_machine(self, split):
 
-        queueidx = (job.next_stage - 1) if len(self.machine_queues) > 1 else 0
-        machines = self.active_machines[queueidx]
-        machines.remove(job)
+        queue_idx = split.stage.queue_idx(self)
+        machines = self.active_machines[queue_idx]
+        machines.remove(split)
 
-        queue = self.machine_queues[queueidx]
-        if len(queue) > 0:
-            ran = self.try_run_job(queue[0], at_head = True)
-            if ran:
-                queue.pop(0)
+        self.try_run_next_split(queue_idx)
 
     def queue_next_arrival(self):
         
@@ -208,17 +303,26 @@ class ArrivalEvent:
 
     def run(self, state):
         for job in self.jobs:
-            state.try_run_job(job)
+            state.queue_job_next_stage(job)
         state.queue_next_arrival()
 
-class JobDoneEvent:
+class SplitDoneEvent:
 
-    def __init__(self, job):
-        self.job = job
+    def __init__(self, split):
+        self.split = split
 
     def run(self, state):
-        state.release_job_machine(self.job)
-        state.try_run_job(self.job)
+
+        state.release_split_machine(self.split)
+        self.split.split_done(state)
+
+class GatherDoneEvent:
+
+    def __init__(self, split):
+        self.split = split
+
+    def run(self, state):
+        self.split.gather_done(state)
 
 next_job_id = 0
 def fresh_job_id():
@@ -227,40 +331,149 @@ def fresh_job_id():
     next_job_id += 1
     return ret
 
+# JobSplit keeps track of state that only applies to one split
+class JobSplit:
+
+    def __init__(self, stage, split_idx):
+
+        self.stage = stage
+        self.split_start_time = None
+        self.split_finish_time = None
+        self.split_idx = split_idx
+
+    def __str__(self):
+        
+        ret = str(self.stage.job)
+        if self.stage.total_splits != 1:
+            ret += " (split %d)" % (self.split_idx + 1)
+        elif self.stage.is_gather:
+            ret += " (gather phase)"
+        return ret
+
+    def schedule_split(self, state, cores, vm_startup_delay):
+
+        self.split_start_time = state.now
+        predicted_runtime = params.processing_time(self.stage.job.nrecords, cores, self.stage.total_splits, self.stage.job.current_stage, include_gather = False) + vm_startup_delay
+        self.split_finish_time = state.now + predicted_runtime
+
+        if state.debug:
+            print "Start", str(self), "stage", self.stage.job.current_stage, "at", state.now, "expected finish", self.split_finish_time
+            
+        real_runtime = params.predicted_to_real_time(predicted_runtime)
+        split_end_event = SplitDoneEvent(self)
+        heappush(state.event_queue, (state.now + real_runtime, split_end_event))
+        
+        self.stage.schedule_split(state, cores)
+
+    def split_done(self, state):
+
+        self.stage.split_done(state)
+
+# JobStages keep track of per-stage state.
+# Job keeps track of state that spans across stages.
+class JobStage:
+
+    def __init__(self, job, splits):
+
+        self.job = job
+        self.total_splits = splits
+        self.splits_scheduled = 0
+        self.splits_done = 0
+        self.active_cores = None
+        self.is_gather = self.job.gather_started
+        self.stage_idx = self.job.current_stage
+
+    def schedule_split(self, state, cores):
+
+        if self.active_cores is not None and self.active_cores != cores:
+            raise Exception("Should use the same number of cores per split")
+        self.active_cores = cores
+        self.splits_scheduled += 1
+
+        self.job.schedule_split(state)
+
+    def split_done(self, state):
+        
+        self.splits_done += 1
+        if self.splits_done < self.total_splits:
+            if state.debug:
+                print "%s: Only %d/%d splits completed" % (str(self.job), self.splits_done, self.total_splits)
+            return
+
+        if self.total_splits > 1:
+            if state.debug:
+                print "%s: All splits completed; scheduling gather" % str(self.job)
+            self.job.gather_started = True
+            state.queue_job_next_stage(self.job)
+        else:
+            self.gather_done(state)
+
+    def schedule_gather(self, state):
+
+        gather_delay = predicted_to_real_time(self.job.gather_delay())
+        done_event = GatherDoneEvent(self)
+        heappush(state.event_queue, (state.now + gather_delay, done_event))        
+
+    def gather_done(self, state):
+
+        if state.debug and self.is_gather:
+            print "%s: Gather done" % str(self.job)
+
+        self.job.current_stage += 1
+        self.job.gather_started = False
+
+        if self.job.done():
+            self.job.credit_reward(state)
+        else:
+            state.queue_job_next_stage(self.job)
+
+    def estimate_split_time(self, state, dynamic_cores):
+
+        if self.active_cores is not None:
+            dynamic_cores = self.active_cores
+
+        if self.is_gather and dynamic_cores != 1:
+            raise Exception("Gather phases must run single-cored")
+
+        if self.is_gather:
+            return self.job.gather_time()
+        else:
+            return self.job.estimate_stage_time(state, dynamic_cores, include_gather_time = False)
+
+    def queue_idx(self, state):
+
+        if len(state.machine_queues) == 1:
+            return 0
+        elif self.is_gather:
+            return len(state.machine_queues) - 1
+        else:
+            return self.stage_idx
+
 class Job:
 
     def __init__(self, nrecords):
         self.nrecords = nrecords
-        self.next_stage = 0
+        self.current_stage = 0
+        self.gather_started = False
         self.start_time = None
-        self.stage_start_time = None
-        self.stage_finish_time = None
         self.job_id = fresh_job_id()
-        self.active_cores = None
 
     def __str__(self):
         return "Job %d (size %d)" % (self.job_id, self.nrecords)
 
     def done(self):
-        return self.next_stage == 7
+        return self.current_stage == 7
 
-    def schedule_next_stage(self, state, cores, vm_startup_delay):
-
-        self.active_cores = cores
-        self.stage_start_time = state.now
-        self.stage_finish_time = state.now + params.processing_time(self.nrecords, cores, 1, self.next_stage) + vm_startup_delay
+    def schedule_split(self, state):
         if self.start_time is None:
             self.start_time = state.now
 
-        if state.debug:
-            print "Start job", str(self), "stage", self.next_stage, "at", state.now, "expected finish", self.stage_finish_time
+    def gather_time(self):
+        return params.gather_time(self.nrecords, self.current_stage)
+        
+    def estimate_finish_time(self, state, dynamic_cores_per_stage, from_stage = -1, to_stage = 7, include_gather_time = True):
 
-        stage_end_event = JobDoneEvent(self)
-        heappush(state.event_queue, (self.stage_finish_time, stage_end_event))
-        self.next_stage += 1
-
-    def estimate_finish_time(self, state, dynamic_cores_per_stage, from_stage = -1, to_stage = 7):
-        # Assume we are not currently running; estimate finish of whole job
+        # Some part of this job is still in a queue waiting to run. Estimate time to finish the rest of the job.
         def cores_for_stage(i):
             machine_type = i if len(state.machine_specs) > 1 else 0
             ret = state.machine_specs[machine_type]
@@ -269,14 +482,21 @@ class Job:
                 ret = dynamic_cores_per_stage
             return ret
         if from_stage == -1:
-            from_stage = self.next_stage
-        return sum([params.processing_time(self.nrecords, cores_for_stage(i), 1, i) for i in range(from_stage, to_stage)])
+            from_stage = self.current_stage
 
-    def estimate_stage_time(self, state, dynamic_cores):
-        return self.estimate_finish_time(state, dynamic_cores, from_stage = self.next_stage, to_stage = self.next_stage + 1)
+        if from_stage == self.current_stage and self.gather_started:
+            from_stage += 1
+            extra_gather = params.gather_time(self.self.nrecords, self.current_stage)
+        else:
+            extra_gather = 0
+
+        return extra_gather + sum([params.processing_time(self.nrecords, cores_for_stage(i), state.phase_splits[i], i, include_gather_time) for i in range(from_stage, to_stage)])
+
+    def estimate_stage_time(self, state, dynamic_cores, include_gather_time):
+        return self.estimate_finish_time(state, dynamic_cores, from_stage = self.current_stage, to_stage = self.current_stage + 1, include_gather_time = include_gather_time)
 
     def estimate_reward(self, running_time):
-        return params.reward(self.nrecords, running_time)
+        return params.reward(running_time, self.nrecords)
 
     def credit_reward(self, state):
         reward = params.reward(state.now - self.start_time, self.nrecords)
