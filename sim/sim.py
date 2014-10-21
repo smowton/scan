@@ -108,7 +108,10 @@ class SimState:
             
             # If hiring now would draw from the lowest cost tier then just do it.
             active = self.active_cores()
-            cores_per_machine = self.machine_specs[queueidx]
+            if split.stage.is_gather:
+                cores_per_machine = 1
+            else:
+                cores_per_machine = self.machine_specs[queueidx]
             if cores_per_machine is None:
                 cores_per_machine = split.stage.active_cores
             if cores_per_machine is None:
@@ -171,7 +174,7 @@ class SimState:
                 # Don't double-count the penalty for slowing the job down (but do bump the start time)
                 if qjob not in unique_jobs:
                     total_defer_penalty += job_defer_penalty(qjob, next_start_time - self.now, defer_delay)
-                unique_jobs += qjob
+                unique_jobs.add(qjob)
 
                 if len(next_finish_splits) != 0:
                     next_start_time = next_finish_splits.pop().split_finish_time
@@ -273,7 +276,10 @@ class SimState:
 
         queue.pop(0)
 
-        cores = self.machine_specs[queueidx]
+        if split.stage.is_gather:
+            cores = 1
+        else:
+            cores = self.machine_specs[queueidx]
         # Using dynamic vertical scaling?
         if cores is None:
             cores = split.stage.active_cores
@@ -476,7 +482,7 @@ class Job:
 
         if from_stage == self.current_stage and self.gather_started:
             from_stage += 1
-            extra_gather = params.gather_time(self.self.nrecords, self.current_stage)
+            extra_gather = params.gather_time(self.nrecords, self.current_stage)
         else:
             extra_gather = 0
 
