@@ -8,7 +8,7 @@ import random
 
 class SimState:
 
-    def __init__(self, nmachines, machine_specs, phase_splits, arrival_process, stop_time, debug):
+    def __init__(self, nmachines, machine_specs, phase_splits, arrival_process, stop_time, debug, plot):
 
         self.now = 0
         self.event_queue = []
@@ -22,6 +22,7 @@ class SimState:
         self.total_reward = 0
         self.stop_time = stop_time
         self.debug = debug
+        self.plot = plot
 
         for i, (splits, can_split) in enumerate(zip(self.phase_splits, params.can_split_phase)):
             if splits > 1 and not can_split:
@@ -59,8 +60,9 @@ class SimState:
             if self.debug:
                 print self.now
 
-            for i, active_list in enumerate(self.active_machines):
-                print "%g,%d,%d,%d" % (self.now, i, sum([x.stage.active_cores for x in active_list]), len(active_list))
+            if self.plot:
+                for i, active_list in enumerate(self.active_machines):
+                    print "%g,%d,%d,%d" % (self.now, i, sum([x.stage.active_cores for x in active_list]), len(active_list))
 
             event.run(self)
 

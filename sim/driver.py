@@ -2,6 +2,7 @@
 
 import sim
 import sys
+import json
 
 if "dyn" in sys.argv:
     nmachines = [None] * 7
@@ -13,6 +14,8 @@ nmachines = None
 machine_specs = [None]
 phase_splits = None
 debug = False
+print_json = False
+plot = True
 
 for arg in sys.argv[1:]:
     if arg.startswith("nmachines="):
@@ -23,6 +26,10 @@ for arg in sys.argv[1:]:
         phase_splits = [int(x) for x in arg.split("=")[1].split(",")]
     elif arg == "debug":
         debug = True
+    elif arg == "noplot":
+        plot = False
+    elif arg == "json":
+        print_json = True
     else:
         raise Exception("Unrecognised argument: %s" % arg)
 
@@ -50,10 +57,16 @@ if len(nmachines) != 1 and len(nmachines) != multiqueue_count:
     sys.exit(1)
 
 arrival_process = sim.ArrivalProcess(mean_arrival = 100000, mean_jobs = 3, jobs_var = 2, mean_records = 1000, records_var = 200)
-state = sim.SimState(nmachines = nmachines, machine_specs = machine_specs, phase_splits = phase_splits, arrival_process = arrival_process, stop_time = 1000000, debug = debug)
+state = sim.SimState(nmachines = nmachines, machine_specs = machine_specs, phase_splits = phase_splits, arrival_process = arrival_process, stop_time = 1000000, debug = debug, plot = plot)
 
 state.run()
 
-print >>sys.stderr, "Total reward", state.total_reward
-print >>sys.stderr, "Total cost", state.total_cost
-print >>sys.stderr, "Reward per unit cost", float(state.total_reward) / state.total_cost
+if print_json:
+
+    json.dump({"reward": state.total_reward, "cost": state.total_cost, "ratio": float(state.total_reward) / state.total_cost})
+
+else:
+
+    print >>sys.stderr, "Total reward", state.total_reward
+    print >>sys.stderr, "Total cost", state.total_cost
+    print >>sys.stderr, "Reward per unit cost", float(state.total_reward) / state.total_cost
