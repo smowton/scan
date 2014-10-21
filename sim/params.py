@@ -17,7 +17,7 @@ def correct_thread_efficiency(thread_count):
 def processing_time(record_count, thread_count, split_count, phase_index, include_gather):
 
     thread_count = correct_thread_efficiency(thread_count)
-    ret = processing_times[phase_index](record_count, thread_count, split_count)
+    ret = processing_times[phase_index](record_count, thread_count, split_count) * processing_time_weight[phase_index]
     if include_gather:
         ret += gather_time(record_count, phase_index)
     return ret
@@ -35,6 +35,16 @@ def input_dependent(record_count, thread_count, split_count):
 def input_dependent_nothreads(record_count, thread_count, split_count):
 
     return (float(record_count) / (split_count)) + task_overhead
+
+processing_time_weight = [
+    1.0,
+    1.0,
+    0.8,
+    0.6,
+    1.4,
+    0.4,
+    0.4
+]
 
 processing_times = [
     input_independent,
@@ -104,4 +114,4 @@ vm_startup_delay = 50
 
 def predicted_to_real_time(predicted_time):
 
-    return predicted_time * random.uniform(0.9, 1.1)
+    return predicted_time * random.normalvariate(1, 0.05)

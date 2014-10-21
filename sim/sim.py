@@ -23,6 +23,10 @@ class SimState:
         self.stop_time = stop_time
         self.debug = debug
 
+        for i, (splits, can_split) in enumerate(zip(self.phase_splits, params.can_split_phase)):
+            if splits > 1 and not can_split:
+                raise Exception("Not allowed to split phase %d" % i)
+
         arrival_time, first_event = arrival_process.next()
         heappush(self.event_queue, (0, first_event))
 
@@ -316,14 +320,6 @@ class SplitDoneEvent:
         state.release_split_machine(self.split)
         self.split.split_done(state)
 
-class GatherDoneEvent:
-
-    def __init__(self, split):
-        self.split = split
-
-    def run(self, state):
-        self.split.gather_done(state)
-
 next_job_id = 0
 def fresh_job_id():
     global next_job_id
@@ -352,8 +348,10 @@ class JobSplit:
 
     def schedule_split(self, state, cores, vm_startup_delay):
 
+        self.stage.schedule_split(state, cores)
+
         self.split_start_time = state.now
-        predicted_runtime = params.processing_time(self.stage.job.nrecords, cores, self.stage.total_splits, self.stage.job.current_stage, include_gather = False) + vm_startup_delay
+        predicted_runtime = self.stage.estimate_split_time(state, dynamic_cores = cores) + vm_startup_delay
         self.split_finish_time = state.now + predicted_runtime
 
         if state.debug:
@@ -363,8 +361,6 @@ class JobSplit:
         split_end_event = SplitDoneEvent(self)
         heappush(state.event_queue, (state.now + real_runtime, split_end_event))
         
-        self.stage.schedule_split(state, cores)
-
     def split_done(self, state):
 
         self.stage.split_done(state)
@@ -407,12 +403,6 @@ class JobStage:
             state.queue_job_next_stage(self.job)
         else:
             self.gather_done(state)
-
-    def schedule_gather(self, state):
-
-        gather_delay = predicted_to_real_time(self.job.gather_delay())
-        done_event = GatherDoneEvent(self)
-        heappush(state.event_queue, (state.now + gather_delay, done_event))        
 
     def gather_done(self, state):
 
