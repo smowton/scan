@@ -56,7 +56,7 @@ if len(nmachines) != 1 and len(nmachines) != multiqueue_count:
     print >>sys.stderr, "Must specify either 1 or", multiqueue_count, " [or", "7" if multiqueue_count == 8 else "8", " depending on whether work splitting is in use] machine classes"
     sys.exit(1)
 
-arrival_process = sim.ArrivalProcess(mean_arrival = 2.4, mean_jobs = 3, jobs_var = 2, mean_records = 5, records_var = 1)
+arrival_process = sim.ArrivalProcess(mean_arrival = 5, mean_jobs = 3, jobs_var = 2, mean_records = 5, records_var = 1)
 state = sim.SimState(nmachines = nmachines, machine_specs = machine_specs, phase_splits = phase_splits, arrival_process = arrival_process, stop_time = 10000, debug = debug, plot = plot)
 
 state.run()
