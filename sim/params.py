@@ -79,12 +79,12 @@ def reward(total_pipeline_latency, record_count):
     else:
         return 0
 
-core_cost_tiers = [{"cores": 100, "cost": 0.02}, {"cores": -1, "cost": 0.1}]
+core_cost_tiers = [{"cores": 100, "cost": 10}, {"cores": None, "cost": 50}]
 
 def core_tier(cores):
 
     for i, tier in enumerate(core_cost_tiers):
-        if tier["cores"] == -1:
+        if tier["cores"] is None:
             return i
         cores -= tier["cores"]
         if cores <= 0:
@@ -96,15 +96,28 @@ def concurrent_cores_hired_to_cost(cores):
 
     # Model a simple situation where we own a bunch of cores (which are thus nearly free)
     # but can also hire more from the cloud (more expensive)
-    # Benchmark: putting a 1000-record input through the pipeline with a single core takes around 8000 time units
-    # and earns 1000 money. Thus hiring a core for 0.1 money / time unit is an OK price.
 
-    return (min(cores, 100) * 0.02) + (max(0, cores - 100) * 0.1)
+    cost = 0.0
 
+    for tier in core_cost_tiers:
+
+        if cores == 0:
+            break
+
+        if tier["cores"] is None:
+            cores_here = cores
+        else:
+            cores_here = min(cores, tier["cores"])
+
+        cost += (cores_here * tier["cost"])
+        cores -= cores_here
+
+    return cost
+    
 dynamic_core_choices = [1, 2, 4, 8, 16]
 dynamic_core_greed_factor = 1.5
 
-vm_startup_delay = 50
+vm_startup_delay = 2
 
 def predicted_to_real_time(predicted_time):
 

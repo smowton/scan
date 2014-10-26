@@ -8,11 +8,15 @@ import random
 
 class SimState:
 
+    average_length_memory_factor = 0.9
+
     def __init__(self, nmachines, machine_specs, phase_splits, arrival_process, stop_time, debug, plot):
 
         self.now = 0
         self.event_queue = []
         self.machine_queues = [[] for x in machine_specs]
+        self.machine_queue_average_lengths = [0.0 for x in machine_specs]
+        self.machine_queue_average_service_intervals = [0.0 for x in machine_specs]
         self.active_machines = [[] for x in machine_specs]
         self.nmachines = nmachines
         self.machine_specs = machine_specs
@@ -30,6 +34,18 @@ class SimState:
 
         arrival_time, first_event = arrival_process.next()
         heappush(self.event_queue, (0, first_event))
+        heappush(self.event_queue, (1.0, UpdateAveragesEvent()))
+
+    def update_average_lengths(self):
+
+        for i, q in enumerate(self.machine_queues):
+            oldval = self.machine_queue_average_lengths[i]
+            memfact = SimState.average_length_memory_factor
+            self.machine_queue_average_lengths[i] = (memfact * oldval) + ((1 - memfact) * float(len(q)))
+            if self.debug:
+                print "Queue", i, "current length", len(q), "new average", self.machine_queue_average_lengths[i]
+
+        heappush(self.event_queue, (self.now + 1.0, UpdateAveragesEvent()))
 
     def active_cores(self):
         # If nmachines contains integers then our machines are always up.
@@ -457,7 +473,7 @@ class Job:
         self.job_id = fresh_job_id()
 
     def __str__(self):
-        return "Job %d (size %d)" % (self.job_id, self.nrecords)
+        return "Job %d (size %g)" % (self.job_id, self.nrecords)
 
     def done(self):
         return self.current_stage == 7
@@ -515,10 +531,12 @@ class ArrivalProcess:
     def next(self):
         
         arrival_interval = random.expovariate(self.arrival_lambda)
-        if arrival_interval == float("inf"):
+        if arrival_interval == float("inf") or arrival_interval <= 0:
             arrival_interval = self.mean_arrival
 
         njobs = int(random.normalvariate(self.mean_jobs, self.jobs_var))
+        if njobs <= 0:
+            njobs = 1
         
         jobs = []
         for i in range(njobs):
@@ -526,4 +544,8 @@ class ArrivalProcess:
 
         return (arrival_interval, ArrivalEvent(jobs))
 
+class UpdateAveragesEvent:
+
+    def run(self, state):
+        state.update_average_lengths()
 
