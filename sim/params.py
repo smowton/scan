@@ -79,7 +79,7 @@ def reward(total_pipeline_latency, record_count):
     else:
         return 0
 
-core_cost_tiers = [{"cores": 100, "cost": 10}, {"cores": None, "cost": 50}]
+core_cost_tiers = [{"cores": 100, "cost": 5}, {"cores": None, "cost": 25}]
 
 def core_tier(cores):
 
@@ -114,10 +114,10 @@ def concurrent_cores_hired_to_cost(cores):
 
     return cost
     
-dynamic_core_choices = [1, 2, 4, 8, 16]
+dynamic_core_choices = [1, 2, 4]
 dynamic_core_greed_factor = 1.5
 
-vm_startup_delay = 2
+vm_startup_delay = 0.5
 
 def predicted_to_real_time(predicted_time):
 

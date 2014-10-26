@@ -92,15 +92,12 @@ class SimState:
         queueidx = stage.queue_idx(self)
         queue = self.machine_queues[queueidx]
 
-        queue_was_empty = len(queue) == 0
-        
         for i in range(nsplits):
             split = JobSplit(stage, i)
             queue.append(split)
 
-        if queue_was_empty:
-            while self.try_run_next_split(queueidx):
-                pass
+        while self.try_run_next_split(queueidx):
+            pass
 
     # If possible, run a split for the SplitTracker at the head of the given queue
     def try_run_next_split(self, queueidx):
