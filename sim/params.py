@@ -7,7 +7,6 @@ import random
 # Processing times: how many time units will it take to process the given number of records?
 # When threading or splitting are used, the record count still represents the entire job.
 # There are basically two classes of task: the largely input-dependent, and the largely input-independent.
-# 1000 records is used to represent input of similar size to the genome.
 
 def correct_thread_efficiency(thread_count):
 
@@ -15,45 +14,40 @@ def correct_thread_efficiency(thread_count):
     return float(thread_count) * (1 - (float(thread_count) / 48))
 
 def processing_time(record_count, thread_count, split_count, phase_index, include_gather):
+    
+    params = stage_to_time_params[phase_index]
+    ret = params[1] + (params[0] * (float(record_count) / split_count))
+    if ret < 0:
+        ret = 0.0
 
-    thread_count = correct_thread_efficiency(thread_count)
-    ret = processing_times[phase_index](record_count, thread_count, split_count) * processing_time_weight[phase_index]
+    ideal_thread_factor = float(1) / thread_count
+    thread_constant_part = thread_factor_params[phase_index][1]
+
+    ret *= (thread_constant_part + ((1 - thread_constant_part) * ideal_thread_factor))
+
     if include_gather:
         ret += gather_time(record_count, phase_index)
+
     return ret
 
-task_overhead = 50
-
-def input_independent(record_count, thread_count, split_count):
-
-    return (float(1000) / (thread_count * split_count)) + task_overhead
-
-def input_dependent(record_count, thread_count, split_count):
-
-    return (float(record_count) / (thread_count * split_count)) + task_overhead
-
-def input_dependent_nothreads(record_count, thread_count, split_count):
-
-    return (float(record_count) / (split_count)) + task_overhead
-
-processing_time_weight = [
-    1.0,
-    1.0,
-    0.8,
-    0.6,
-    1.4,
-    0.4,
-    0.4
+thread_factor_params = [
+    (0.886964886965, 0.111111111111),
+    (-0.0106345267636, 0.981389578164),
+    (0.687110446273, 0.312390924956),
+    (0.780952380952, 0.213333333333),
+    (0.905907380134, 0.0904925544101),
+    (0.238095238095, 0.75),
+    (0.0265780730897, 0.976744186047)
 ]
 
-processing_times = [
-    input_independent,
-    input_dependent_nothreads,
-    input_dependent,
-    input_dependent,
-    input_independent,
-    input_dependent_nothreads,
-    input_independent
+stage_to_time_params = [
+    (0.3485, 5.3797222222),
+    (2.6923333333, -0.5316666667),
+    (1.7351666667, 3.9308333333),
+    (3.353, 0.5327777778),
+    (1.032, 17.86),
+    (0.0196666667, 0.3938888889),
+    (0.003, 5.0961111111)
 ]
 
 can_split_phase = [
@@ -77,10 +71,10 @@ def reward(total_pipeline_latency, record_count):
     # the reward structure is 1000 points for finishing in time, 
     # 500 for being a little late, 1500 for being quite early, 0 otherwise.
 
-    if total_pipeline_latency < 5000:
+    if total_pipeline_latency < 60:
         return 1500
-    elif total_pipeline_latency < 11000:
-        score = float(11000 - total_pipeline_latency) / 6000
+    elif total_pipeline_latency < 100:
+        score = float(100 - total_pipeline_latency) / 40
         return 500 + (score * 1000)
     else:
         return 0
