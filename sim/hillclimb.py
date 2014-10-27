@@ -16,6 +16,7 @@ torque = pbs.Server()
 torque.connect()
 
 workdir = sys.argv[1]
+profile = sys.argv[2]
 running_tries = set()
 
 try_results = dict()
@@ -116,12 +117,24 @@ def starttry(t):
     shellfile = os.path.join(trydir(t), "run.sh")
 
     params = t["params"]
+
+    if params["nmachines"][0] is None:
+        nmachines_param = ""
+    else:
+        nmachines_param = "nmachines=" + ",".join([str(x) for x in params["nmachines"]])
+
+    if params["machine_specs"][0] is None:
+        specs_param = ""
+    else:
+        specs_param = "machine_specs=" + ",".join([str(x) for x in params["machine_specs"]])
+
+    splits_param = "phase_splits=" + ",".join([str(x) for x in params["phase_splits"]])
+
+    command = ["python", "/home/csmowton/tmp/scan/sim/driver.py", nmachines_param, specs_param, splits_param, "noplot", "json"]
+    command = filter(lambda x: len(x) > 0, command)
+
     with open(shellfile, "w") as f:
-        f.write("python /home/csmowton/tmp/scan/sim/driver.py nmachines=%s machine_specs=%s phase_splits=%s noplot json > %s" 
-                % (",".join([str(x) for x in params["nmachines"]]),
-                   ",".join([str(x) for x in params["machine_specs"]]), 
-                   ",".join([str(x) for x in params["phase_splits"]]),
-                   tryfile(t)))
+        f.write("%s > %s" % (" ".join(command), tryfile(t)))
         
     print "Start try", t
 
@@ -186,40 +199,12 @@ def check_running_tries():
 
     return len(done) > 0
 
-def down_nmachines(p, idx):
-
-    newp = copy.deepcopy(p)
-    oldval = newp["nmachines"][idx]
-    if oldval <= 20:
-        interval = 2
-    elif oldval <= 60:
-        interval = 5
-    else:
-        interval = 10
-    newp["nmachines"][idx] -= interval
-    return newp
-
-def down_cores(p, idx):
-
-    newp = copy.deepcopy(p)
-    newp["machine_specs"][idx] /= 2
-    newp["nmachines"][idx] *= 2
-    return newp
-
-def down_split(p, idx):
-
-    newp = copy.deepcopy(p)
-    newp["phase_splits"][idx] /= 2
-    if len(newp["machine_specs"]) == 8 and not any([p > 1 for p in newp["phase_splits"]]):
-        # No longer need to specify the gather phase
-        newp["machine_specs"].pop()
-        newp["nmachines"].pop()
-    return newp
-
 def up_nmachines(p, idx):
 
     newp = copy.deepcopy(p)
     oldval = newp["nmachines"][idx]
+    if oldval == None:
+        return None
     if oldval < 20:
         interval = 2
     elif oldval < 60:
@@ -231,9 +216,12 @@ def up_nmachines(p, idx):
 
 def up_cores(p, idx):
 
+    if p["machine_specs"][idx] == None:
+        return None
     newp = copy.deepcopy(p)
     newp["machine_specs"][idx] *= 2
-    newp["nmachines"][idx] /= 2
+    if newp["nmachines"][idx] is not None:
+        newp["nmachines"][idx] /= 2
     return newp
 
 def up_split(p, idx):
@@ -242,11 +230,20 @@ def up_split(p, idx):
     newp["phase_splits"][idx] *= 2
     if len(newp["machine_specs"]) == 7:
         # Must start specifying the gather phase
-        newp["machine_specs"].append(1)
-        newp["nmachines"].append(2)
+        if newp["machine_specs"][0] is not None:
+            newp["machine_specs"].append(1)
+        else:
+            newp["machine_specs"].append(None)
+        if newp["nmachines"][0] is not None:
+            newp["nmachines"].append(2)
+        else:
+            newp["nmachines"].append(None)
     return newp
 
 def valid_params(p):
+
+    if p == None:
+        return False
 
     for i in p["machine_specs"]:
         if i == 0 or i > 4:
@@ -280,15 +277,6 @@ def valid_params(p):
                 return False
 
     return True
-
-def down_from(p):
-
-    # All the ways of climbing down:
-    neighbours = [down_nmachines(p, idx) for idx in range(len(p["nmachines"]))] + \
-        [down_cores(p, idx) for idx in range(len(p["machine_specs"]))] + \
-        [down_split(p, idx) for idx in range(len(p["phase_splits"]))]
-
-    return filter(valid_params, neighbours)
 
 def up_from(p):
 
@@ -363,12 +351,25 @@ def hillclimb_from(p):
 
 # Main:
 
-disable_splits = True
+disable_splits = False
 disable_multicore = False
 
 max_search_splay = 10
 
-init_params = {"nmachines": [12,12,12,12,12,4,12], "machine_specs": [1,1,1,1,1,1,1], "phase_splits": [1,1,1,1,1,1,1]}
+if profile == "noflex-multiqueue":
+    init_params = {"nmachines": [12,12,12,12,12,4,12], "machine_specs": [1] * 7, "phase_splits": [1] * 7}
+elif profile == "noflex":
+    init_params = {"nmachines": [80], "machine_specs": [1], "phase_splits": [1] * 7}
+elif profile == "horiz":
+    init_params = {"nmachines": [None], "machine_specs": [1], "phase_splits": [1] * 7}
+elif profile == "horiz-multiqueue":
+    init_params = {"nmachines": [None] * 7, "machine_specs": [1] * 7, "phase_splits": [1] * 7}
+elif profile == "vert":
+    init_params = {"nmachines": [None], "machine_specs": [None], "phase_splits": [1] * 7}
+else:
+    raise Exception("Bad profile %s" % profile)
+
+
 start_trial(init_params, None)
 
 while True:
