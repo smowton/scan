@@ -20,13 +20,16 @@ running_tries = set()
 
 try_results = dict()
 
-best_result_on_path = dict()
+best_params = []
+finished_params = []
 
 n_tries = 10
 
 queue_limit = 1000
 queued_jobs = 0
 
+class NoSuchTryException(Exception):
+    pass
 
 def job_getattr(j, name):
 
@@ -53,9 +56,9 @@ def wait_for_job_queue_space():
 
     count_queue()
 
-    while queued_jobs > queue_limit:
-        print "Too many jobs queued; taking a minute's break..."
-        time.sleep(60)
+    while queued_jobs > (queue_limit / 2):
+        print "Too many (%d) jobs queued; taking a break..." % queued_jobs
+        time.sleep(5)
         count_queue()
         
 def params_tuple(p):
@@ -144,12 +147,19 @@ def starttry(t):
 
 def read_try_result(t):
 
-    with open(tryfile(t), "r") as f:
+    try:
 
-        result = json.load(f)
-        if "reward" not in result or "ratio" not in result or "cost" not in result:
-            raise Exception("Not finished, or bad JSON?")
-        return result
+        with open(tryfile(t), "r") as f:
+
+            result = json.load(f)
+            if "reward" not in result or "ratio" not in result or "cost" not in result:
+                raise NoSuchTryException("Not finished, or bad JSON?")
+            return result
+
+    except IOError as e:
+        raise NoSuchTryException(e)
+    except ValueError as e:
+        raise NoSuchTryException(e)
 
 def check_running_tries():
 
@@ -167,23 +177,33 @@ def check_running_tries():
             done.append(ttup)
             check_finished_param(t["params"])
 
-        except:
+        except NoSuchTryException as e:
             continue
 
     for d in done:
 
         running_tries.remove(d)
 
+    return len(done) > 0
+
 def down_nmachines(p, idx):
 
     newp = copy.deepcopy(p)
-    newp["nmachines"][idx] -= 10
+    oldval = newp["nmachines"][idx]
+    if oldval <= 20:
+        interval = 2
+    elif oldval <= 60:
+        interval = 5
+    else:
+        interval = 10
+    newp["nmachines"][idx] -= interval
     return newp
 
 def down_cores(p, idx):
 
     newp = copy.deepcopy(p)
     newp["machine_specs"][idx] /= 2
+    newp["nmachines"][idx] *= 2
     return newp
 
 def down_split(p, idx):
@@ -199,13 +219,21 @@ def down_split(p, idx):
 def up_nmachines(p, idx):
 
     newp = copy.deepcopy(p)
-    newp["nmachines"][idx] += 10
+    oldval = newp["nmachines"][idx]
+    if oldval < 20:
+        interval = 2
+    elif oldval < 60:
+        interval = 5
+    else:
+        interval = 10
+    newp["nmachines"][idx] += interval
     return newp
 
 def up_cores(p, idx):
 
     newp = copy.deepcopy(p)
     newp["machine_specs"][idx] *= 2
+    newp["nmachines"][idx] /= 2
     return newp
 
 def up_split(p, idx):
@@ -214,17 +242,17 @@ def up_split(p, idx):
     newp["phase_splits"][idx] *= 2
     if len(newp["machine_specs"]) == 7:
         # Must start specifying the gather phase
-        newp["machine_specs"][7] = 1
-        newp["nmachines"][7] = 1
+        newp["machine_specs"].append(1)
+        newp["nmachines"].append(2)
     return newp
 
 def valid_params(p):
 
     for i in p["machine_specs"]:
-        if i == 0 or i > 16:
+        if i == 0 or i > 4:
             return False
     for i in p["phase_splits"]:
-        if i == 0 or i > 16:
+        if i == 0 or i > 4:
             return False
     for i in p["nmachines"]:
         if i == 0:
@@ -234,10 +262,22 @@ def valid_params(p):
     if p["phase_splits"][6] != 1:
         return False
 
-    # Stages 2 and 6 do not support multiple cores
+    # Stages 2 and 6, and gather do not support multiple cores
     if len(p["machine_specs"]) > 1:
         if p["machine_specs"][1] > 1 or p["machine_specs"][5] > 1:
             return False
+        if len(p["machine_specs"]) >= 8 and p["machine_specs"][7] > 1:
+            return False
+
+    if disable_splits:
+        for i in p["phase_splits"]:
+            if i != 1:
+                return False
+
+    if disable_multicore:
+        for i in p["machine_specs"]:
+            if i != 1:
+                return False
 
     return True
 
@@ -259,13 +299,6 @@ def up_from(p):
 
     return filter(valid_params, neighbours)
 
-def should_climb_from(p):
-
-    result = param_result(p)
-    best_on_path = best_result_on_path[params_tuple(p)]
-    
-    return result >= (best_on_path * 0.9)
-
 def param_result(p):
     try:
         return float(sum([try_results[try_tuple({"try": i, "params": p})]["ratio"] for i in range(n_tries)])) / n_tries
@@ -280,20 +313,7 @@ def check_finished_param(p):
             return
 
     print "All tries for", p, "completed"
-    
-    result = param_result(p)
-    best_on_path = best_result_on_path[params_tuple(p)]
-    if result > best_on_path:
-        best_result_on_path[params_tuple(p)] = result
-
-    if should_climb_from(p):
-
-        print "Result", param_result(p), ("is good enough (>= %g); climbing..." % (best_result_on_path[params_tuple(p)] * 0.9))
-        hillclimb_from(p)
-
-    else:
-        
-        print "Result", param_result(p), "too far behind its parents; not climbing"
+    finished_params.append(p)
 
 def start_trial(p, parent_params):
 
@@ -331,17 +351,8 @@ def start_trial(p, parent_params):
         #print "Start try"
         starttry(t)
 
-    if not already_ran_this_session:
-        if parent_params is None:
-            copy_best = 0.0
-        else:
-            copy_best = best_result_on_path[params_tuple(parent_params)]
-        best_result_on_path[params_tuple(p)] = copy_best
-
     if found_old_results:
-
         print "Found old results for", p, ": some tries skipped"
-        check_finished_param(p)
         
 def hillclimb_from(p):
 
@@ -352,11 +363,38 @@ def hillclimb_from(p):
 
 # Main:
 
-init_params = {"nmachines": [80], "machine_specs": [1], "phase_splits": [1,1,1,1,1,1,1]}
+disable_splits = True
+disable_multicore = False
+
+max_search_splay = 10
+
+init_params = {"nmachines": [12,12,12,12,12,4,12], "machine_specs": [1,1,1,1,1,1,1], "phase_splits": [1,1,1,1,1,1,1]}
 start_trial(init_params, None)
 
-while len(running_tries) > 0:
+while True:
 
-    print "***", len(running_tries), "tries alive ***"
-    check_running_tries()
+    while len(running_tries) > 0:
 
+        print "***", len(running_tries), "tries alive ***"
+        progress = check_running_tries()
+
+        if not progress:
+            time.sleep(5)
+
+    finished_param_results = [(p, param_result(p)) for p in finished_params + best_params]
+    finished_params = []
+    new_best_params = sorted(finished_param_results, key = lambda t: t[1], reverse = True)[:10]
+    
+    print "Wave complete. Best candidates:"
+
+    for (param, result) in new_best_params:
+        print result, param
+
+    if len(new_best_params) == len(best_params) and all([new_param == old_param for ((new_param, new_result), old_param) in zip(new_best_params, best_params)]):
+        print "No progress. Stop."
+        break
+
+    best_params = [x[0] for x in new_best_params]
+
+    for b in best_params:
+        hillclimb_from(b)
