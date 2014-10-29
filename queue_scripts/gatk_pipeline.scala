@@ -18,15 +18,34 @@ trait ExtraArgs extends CommandLineFunction {
 
 }
 
-trait MeasureReference extends CommandLineGATK {
+trait Measure extends CommandLineGATK {
 
-  override def commandLine : String = "expr $(stat -c %s " + reference_sequence.getPath + ") / 1000000 > $SCAN_WORKCOUNT_FILE; " + super.commandLine
+  def measureFile : String
+
+  override def commandLine : String = {
+
+    val scatterFactor = (
+      if(this.isInstanceOf[ScatterGatherableFunction])
+        this.asInstanceOf[ScatterGatherableFunction].scatterCount
+      else
+        1
+    )
+
+    return "expr $(stat -c %s " + measureFile + ") / \\( 1000000 \\* %d \\)".format(scatterFactor) + " > $SCAN_WORKCOUNT_FILE; " + super.commandLine
+
+  }
 
 }
 
-trait MeasureInput extends CommandLineGATK {
+trait MeasureReference extends Measure {
 
-  override def commandLine : String = "expr $(stat -c %s " + input_file(0).getPath + ") / 1000000 > $SCAN_WORKCOUNT_FILE; " + super.commandLine
+  override def measureFile : String = reference_sequence.getPath
+
+}
+
+trait MeasureInput extends Measure {
+
+  override def measureFile : String = input_file(0).getPath
 
 }
 
