@@ -35,7 +35,7 @@ class VarCallingPipeline extends QScript {
   def pathjoin(path1 : String, path2 : String) : String = new File(new File(path1), path2).getPath
 
   val sharedFSRoot = "/mnt/nfs/"
-  val refRoot = pathjoin(sharedFSRoot, "gatk/reference")
+  val refRoot = sharedFSRoot // pathjoin(sharedFSRoot, "")
   val genome = new File(pathjoin(refRoot, "Homo_sapiens.GRCh37.56.dna.chromosomes_and_MT.fa"))
   val dbsnp = new File(pathjoin(refRoot, "dbsnp_138.hg19_with_b37_names.vcf"))
   val indels = new File(pathjoin(refRoot, "1kg.pilot_release.merged.indels.sites.hg19.human_g1k_v37.vcf"))
@@ -48,6 +48,9 @@ class VarCallingPipeline extends QScript {
 
   @Argument
   var scattercount : Int = 1
+
+  @Argument
+  var singleQueue : Boolean = false
 
   def script {
 
@@ -64,6 +67,9 @@ class VarCallingPipeline extends QScript {
       // Received wisdom re: GATK and memory demand:
       c.javaMemoryLimit = Some(2)
 
+      if(singleQueue)
+	c.jobQueue = "linux"
+
       if(c.isInstanceOf[ScatterGatherableFunction]) {
 
         val sg = c.asInstanceOf[ScatterGatherableFunction]
@@ -73,7 +79,10 @@ class VarCallingPipeline extends QScript {
         // to use a different task class, so as to expose the
         // cost of the gather stage.
         sg.setupGatherFunction = {
-          case (x : CommandLineFunction, y) => x.jobQueue = x.originalFunction.asInstanceOf[CommandLineFunction].jobQueue + "_gather"
+          case (x : CommandLineFunction, y) => { 
+		if(!singleQueue)
+			x.jobQueue = x.originalFunction.asInstanceOf[CommandLineFunction].jobQueue + "_gather"
+	  }
         }
 
       }
