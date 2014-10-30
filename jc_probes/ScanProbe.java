@@ -149,12 +149,14 @@ public class ScanProbe extends Probe{
 
 	private void getResourceUsage(HashMap<Integer, Object> values, String c, int offset) throws MalformedURLException, IOException {
 
-		InputStream is = getStream("getresusage?classname=" + c);
-		JSONTokener tok = new JSONTokener(is);
-		JSONObject stats = new JSONObject(tok);
-		values.put(offset + 2, stats.getDouble("cpu"));
-		values.put(offset + 3, stats.getDouble("mem"));
-		is.close();
+//		InputStream is = getStream("getresusage?classname=" + c);
+//		JSONTokener tok = new JSONTokener(is);
+//		JSONObject stats = new JSONObject(tok);
+//		values.put(offset + 2, stats.getDouble("cpu"));
+//		values.put(offset + 3, stats.getDouble("mem"));
+//		is.close();
+		values.put(offset + 2, 0.0);
+		values.put(offset + 3, 0.0);
 
 	}
 
