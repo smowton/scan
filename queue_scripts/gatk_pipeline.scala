@@ -109,6 +109,9 @@ class VarCallingPipeline extends QScript {
       // Received wisdom re: GATK and memory demand:
       c.javaMemoryLimit = Some(6)
 
+      // Don't require the CWD to be accessible remotely:
+      c.commandDirectory = workdir
+
       if(singleQueue)
 	c.jobQueue = "linux"
 
