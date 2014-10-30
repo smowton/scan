@@ -39,6 +39,7 @@ class Task:
 		self.worker = None
                 self.start_time = None
                 self.sched = sched
+		self.failures = 0
 
         def to_dict(self):
                 d = copy.copy(self.__dict__)
@@ -305,28 +306,45 @@ class TinyScheduler:
 				ret = None
 			if ret is not None:
 
-                                print "Task", pid, "finished"
+				if ret == 0:
+	                                print "Task", pid, "finished"
+				else:
+					print "*** Task", pid, "failed! (rc: %d)" % ret
                         
-                                try:
-                                        read_proc = self.getrunner(rp.worker)
-                                        read_proc.append("cat %s" % rp.workcountfile())
-                                        workdone = int(subprocess.check_output(read_proc))
-                                        if workdone == 0:
-                                                workdone = 1
-                                except subprocess.CalledProcessError:
-                                        print "Can't read from", rp.workcountfile(), "assuming one unit of work completed"
-                                        workdone = 1
-                                except ValueError:
-                                        print "Junk in", rp.workcountfile(), "assuming one unit of work completed"
-                                        workdone = 1
-
-                                runhours = (datetime.datetime.now() - rp.start_time).total_seconds() / (60 * 60)
-                                self.lastwph = float(workdone) / runhours
-                                print "Task completed %g units of work in %g hours; new wph = %g" % (workdone, runhours, self.lastwph)
-        
-				del self.procs[pid]
                                 freed_worker = rp.worker
                                 freed_worker.busy = False
+
+				if ret == 0:
+
+	                                try:
+        	                                read_proc = self.getrunner(rp.worker)
+                	                        read_proc.append("cat %s" % rp.workcountfile())
+                        	                workdone = int(subprocess.check_output(read_proc))
+                                	        if workdone == 0:
+                                        	        workdone = 1
+	                                except subprocess.CalledProcessError:
+        	                                print "Can't read from", rp.workcountfile(), "assuming one unit of work completed"
+                	                        workdone = 1
+	                                except ValueError:
+        	                                print "Junk in", rp.workcountfile(), "assuming one unit of work completed"
+                	                        workdone = 1
+
+	                                runhours = (datetime.datetime.now() - rp.start_time).total_seconds() / (60 * 60)
+	                                self.lastwph = float(workdone) / runhours
+	                                print "Task completed %g units of work in %g hours; new wph = %g" % (workdone, runhours, self.lastwph)
+        
+					del self.procs[pid]
+
+				else:
+
+					if rp.failures == 10:
+						print "Too many failures; giving up"
+						del self.procs[pid]
+					else:
+						rp.failures += 1
+						print "Queueing for retry", rp.failures
+						rp.worker = None
+						self.pending.append(rp)
 
                                 if len(self.pendingremoves) > 0:
                                         print "Releasing worker", freed_worker.wid, freed_worker.address
@@ -342,9 +360,10 @@ class TinyScheduler:
                                         freed_worker = self.pendingreplacements[-1]
                                         self.workers[freed_worker.wid] = freed_worker
                                         self.pendingreplacements.pop()
-                                        
+
                                 if freed_worker is not None:
-                                        self.freeworkers.append(freed_worker)
+					
+                                        self.freeworkers.insert(0, freed_worker)
 					self.trystartprocs()
 
 			return json.dumps({"pid": pid, "retcode": ret})
@@ -606,6 +625,7 @@ thread_stop.priority = 10
 cherrypy.engine.subscribe("stop", thread_stop)
 
 cherrypy.server.socket_host = '0.0.0.0'
+cherrypy.server.thread_pool = 100
 
 cherrypy.quickstart(sched)
 
