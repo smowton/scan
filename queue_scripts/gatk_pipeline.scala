@@ -49,6 +49,12 @@ trait MeasureInput extends Measure {
 
 }
 
+trait MeasureVariant extends Measure {
+
+  override def measureFile : String = this.asInstanceOf[VariantFiltration].variant.getPath
+
+}
+
 class VarCallingPipeline extends QScript {
 
   def pathjoin(path1 : String, path2 : String) : String = new File(new File(path1), path2).getPath
@@ -182,7 +188,7 @@ class VarCallingPipeline extends QScript {
 
     gatk_add(UG, 4)
 
-    val VF = new VariantFiltration with MeasureInput
+    val VF = new VariantFiltration with MeasureVariant
     VF.reference_sequence = genome
     VF.variant = unfilteredCalls
     VF.out = filteredCalls
