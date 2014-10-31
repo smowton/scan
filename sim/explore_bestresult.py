@@ -57,6 +57,8 @@ if best_spec["phase_splits"][0] is not None:
         new_spec["phase_splits"] = list(new_splits)
         to_try.append(new_spec)
 
+to_try = filter(hillclimb.valid_params, to_try)
+
 print "Trying", len(to_try), "variants"
 
 hillclimb.workdir = sys.argv[1]

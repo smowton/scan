@@ -41,15 +41,21 @@ def get_best_result_in(root_dir, match_nmachines = None, match_cores = None, mat
             abscoredir = os.path.join(abssplitdir, coredir)
             for machinedir in get_dirs(match_nmachines, abscoredir):
 
-                def load_try(i):
-                    with open(os.path.join(abscoredir, machinedir, str(i), "out.json"), "r") as f:
-                        return json.load(f)["ratio"]
+                try:
 
-                result = sum([load_try(i) for i in range(10)]) / 10
-                spec = {"phase_splits": splitdir, "machine_specs": coredir, "nmachines": machinedir}
-                spec = {k: dirname_to_list(v) for (k, v) in spec.iteritems()}
+                    def load_try(i):
+                        with open(os.path.join(abscoredir, machinedir, str(i), "out.json"), "r") as f:
+                            return json.load(f)["ratio"]
 
-                results.append({"spec": spec, "result": result})
+                    result = sum([load_try(i) for i in range(10)]) / 10
+                    spec = {"phase_splits": splitdir, "machine_specs": coredir, "nmachines": machinedir}
+                    spec = {k: dirname_to_list(v) for (k, v) in spec.iteritems()}
+
+                    results.append({"spec": spec, "result": result})
+
+                except Exception as e:
+                    
+                    print >>sys.stderr, "Skipping malformed result", os.path.join(abscoredir, machinedir), "(%s)" % e
 
     return sorted(results, key = lambda x : x["result"], reverse = True)
 

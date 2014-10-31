@@ -29,6 +29,11 @@ queued_jobs = 0
 
 workdir = None
 
+disable_splits = False
+disable_multicore = False
+    
+max_search_splay = 10
+
 class NoSuchTryException(Exception):
     pass
 
@@ -411,11 +416,6 @@ if __name__ == "__main__":
 
     workdir = sys.argv[1]
     profile = sys.argv[2]
-
-    disable_splits = False
-    disable_multicore = False
-
-    max_search_splay = 10
 
     if profile == "noflex-multiqueue":
         init_params = {"nmachines": [12,12,12,12,12,4,12], "machine_specs": [1] * 7, "phase_splits": [1] * 7}
