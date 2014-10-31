@@ -344,6 +344,7 @@ class TinyScheduler:
 						rp.failures += 1
 						print "Queueing for retry", rp.failures
 						rp.worker = None
+						rp.proc = None
 						self.pending.append(rp)
 
                                 if len(self.pendingremoves) > 0:
