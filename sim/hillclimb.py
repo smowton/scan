@@ -15,8 +15,6 @@ import PBSPy.capi as pbs
 torque = pbs.Server()
 torque.connect()
 
-workdir = sys.argv[1]
-profile = sys.argv[2]
 running_tries = set()
 
 try_results = dict()
@@ -28,6 +26,8 @@ n_tries = 10
 
 queue_limit = 1000
 queued_jobs = 0
+
+workdir = None
 
 class NoSuchTryException(Exception):
     pass
@@ -90,6 +90,8 @@ def tries(nmachines, cores, splits):
 
 def trydir(t):
     params = t["params"]
+    if workdir is None:
+        raise Exception("Must set workdir before running")
     return os.path.join(workdir, "%s/%s/%s/%d" % ("-".join([str(x) for x in params["phase_splits"]]),
                                                   "-".join([str(x) for x in params["machine_specs"]]),
                                                   "-".join([str(x) for x in params["nmachines"]]),
@@ -199,6 +201,52 @@ def check_running_tries():
 
     return len(done) > 0
 
+def down_nmachines(p, idx):
+
+    if p["nmachines"][idx] is None:
+        return None
+
+    newp = copy.deepcopy(p)
+    oldval = newp["nmachines"][idx]
+    if oldval <= 20:
+        interval = 2
+    elif oldval <= 60:
+        interval = 5
+    else:
+        interval = 10
+    newp["nmachines"][idx] -= interval
+    return newp
+
+def down_cores(p, idx):
+
+    if p["machine_specs"][idx] is None:
+        return None
+
+    newp = copy.deepcopy(p)
+    newp["machine_specs"][idx] /= 2
+    if newp["nmachines"][idx] is not None:
+        newp["nmachines"][idx] *= 2
+    return newp
+
+def down_split(p, idx):
+
+    newp = copy.deepcopy(p)
+    newp["phase_splits"][idx] /= 2
+    if len(newp["machine_specs"]) == 8 and not any([p > 1 for p in newp["phase_splits"]]):
+        # No longer need to specify the gather phase
+        newp["machine_specs"].pop()
+        newp["nmachines"].pop()
+    return newp
+
+def down_from(p):
+
+    # All the ways of climbing down:
+    neighbours = [down_nmachines(p, idx) for idx in range(len(p["nmachines"]))] + \
+        [down_cores(p, idx) for idx in range(len(p["machine_specs"]))] + \
+        [down_split(p, idx) for idx in range(len(p["phase_splits"]))]
+
+    return filter(valid_params, neighbours)
+
 def up_nmachines(p, idx):
 
     newp = copy.deepcopy(p)
@@ -246,13 +294,13 @@ def valid_params(p):
         return False
 
     for i in p["machine_specs"]:
-        if i == 0 or i > 4:
+        if i is not None and (i <= 0 or i > 4):
             return False
     for i in p["phase_splits"]:
-        if i == 0 or i > 4:
+        if i is not None and (i <= 0 or i > 4):
             return False
     for i in p["nmachines"]:
-        if i == 0:
+        if i is not None and i <= 0:
             return False
 
     # Phase 7 never splits
@@ -303,7 +351,7 @@ def check_finished_param(p):
     print "All tries for", p, "completed"
     finished_params.append(p)
 
-def start_trial(p, parent_params):
+def start_trial(p):
 
     found_old_results = False
     already_ran_this_session = False
@@ -344,35 +392,12 @@ def start_trial(p, parent_params):
         
 def hillclimb_from(p):
 
-    neighbours = up_from(p)
+    neighbours = up_from(p) + down_from(p)
 
     for n in neighbours:
-        start_trial(n, p)
+        start_trial(n)
 
-# Main:
-
-disable_splits = False
-disable_multicore = False
-
-max_search_splay = 10
-
-if profile == "noflex-multiqueue":
-    init_params = {"nmachines": [12,12,12,12,12,4,12], "machine_specs": [1] * 7, "phase_splits": [1] * 7}
-elif profile == "noflex":
-    init_params = {"nmachines": [80], "machine_specs": [1], "phase_splits": [1] * 7}
-elif profile == "horiz":
-    init_params = {"nmachines": [None], "machine_specs": [1], "phase_splits": [1] * 7}
-elif profile == "horiz-multiqueue":
-    init_params = {"nmachines": [None] * 7, "machine_specs": [1] * 7, "phase_splits": [1] * 7}
-elif profile == "vert":
-    init_params = {"nmachines": [None], "machine_specs": [None], "phase_splits": [1] * 7}
-else:
-    raise Exception("Bad profile %s" % profile)
-
-
-start_trial(init_params, None)
-
-while True:
+def await_running_tries():
 
     while len(running_tries) > 0:
 
@@ -382,20 +407,50 @@ while True:
         if not progress:
             time.sleep(5)
 
-    finished_param_results = [(p, param_result(p)) for p in finished_params + best_params]
-    finished_params = []
-    new_best_params = sorted(finished_param_results, key = lambda t: t[1], reverse = True)[:10]
-    
-    print "Wave complete. Best candidates:"
+if __name__ == "__main__":
 
-    for (param, result) in new_best_params:
-        print result, param
+    workdir = sys.argv[1]
+    profile = sys.argv[2]
 
-    if len(new_best_params) == len(best_params) and all([new_param == old_param for ((new_param, new_result), old_param) in zip(new_best_params, best_params)]):
-        print "No progress. Stop."
-        break
+    disable_splits = False
+    disable_multicore = False
 
-    best_params = [x[0] for x in new_best_params]
+    max_search_splay = 10
 
-    for b in best_params:
-        hillclimb_from(b)
+    if profile == "noflex-multiqueue":
+        init_params = {"nmachines": [12,12,12,12,12,4,12], "machine_specs": [1] * 7, "phase_splits": [1] * 7}
+    elif profile == "noflex":
+        init_params = {"nmachines": [80], "machine_specs": [1], "phase_splits": [1] * 7}
+    elif profile == "horiz":
+        init_params = {"nmachines": [None], "machine_specs": [1], "phase_splits": [1] * 7}
+    elif profile == "horiz-multiqueue":
+        init_params = {"nmachines": [None] * 7, "machine_specs": [1] * 7, "phase_splits": [1] * 7}
+    elif profile == "vert":
+        init_params = {"nmachines": [None], "machine_specs": [None], "phase_splits": [1] * 7}
+    else:
+        raise Exception("Bad profile %s" % profile)
+
+
+    start_trial(init_params)
+
+    while True:
+
+        await_running_tries()
+
+        finished_param_results = [(p, param_result(p)) for p in finished_params + best_params]
+        finished_params = []
+        new_best_params = sorted(finished_param_results, key = lambda t: t[1], reverse = True)[:10]
+
+        print "Wave complete. Best candidates:"
+
+        for (param, result) in new_best_params:
+            print result, param
+
+        if len(new_best_params) == len(best_params) and all([new_param == old_param for ((new_param, new_result), old_param) in zip(new_best_params, best_params)]):
+            print "No progress. Stop."
+            break
+
+        best_params = [x[0] for x in new_best_params]
+
+        for b in best_params:
+            hillclimb_from(b)
