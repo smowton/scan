@@ -10,10 +10,13 @@ import time
 import subprocess
 import copy
 
-import PBSPy.capi as pbs
-
-torque = pbs.Server()
-torque.connect()
+try:
+    import PBSPy.capi as pbs
+    torque = pbs.Server()
+    torque.connect()
+except:
+    torque = None
+    print >>sys.stderr, "Warning: Torque not available; service routines only"
 
 running_tries = set()
 

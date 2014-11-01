@@ -11,11 +11,15 @@ import matplotlib.pyplot as plt
 
 def plot_errbars(points, filename):
 
+    points = sorted(points, key = lambda x: x[0])
+    
     xs = [x for (x, ys) in points]
     ys = [ymed for (x, (ymin, ymed, ymax)) in points]
-    errorbars = [(ymed - ymin, ymax - ymed) for (x, (ymin, ymed, ymax)) in points]
+    lowerror = [ymed - ymin for (x, (ymin, ymed, ymax)) in points]
+    higherror = [ymax - ymed for (x, (ymin, ymed, ymax)) in points]
     plt.figure()
-    plt.plot(xs, ys, yerr=errorbars)
+    plt.errorbar(xs, ys, yerr=(lowerror, higherror))
+    print "Writing", filename
     plt.savefig(filename)
 
 def plot_aggregate(params, axis, filename):
@@ -46,11 +50,13 @@ if len(sys.argv) < 3:
 data_dir = sys.argv[1]
 out_dir = sys.argv[2]
 
+hillclimb.workdir = data_dir
+
 out_machines = os.path.join(out_dir, "nmachines.pdf")
 out_specs = os.path.join(out_dir, "specs.pdf")
 out_splits = os.path.join(out_dir, "splits.pdf")
 
-best_params = get_best_result_in(data_dir)
+best_params = bestresult.get_best_result_in(data_dir)[0]["spec"]
 
 print "Plotting based on best point", best_params
 
@@ -72,8 +78,8 @@ def validate(l):
 (machine_vars, spec_vars, split_vars) = map(validate, (machine_vars, spec_vars, split_vars))
 
 if machine_vars is not None:
-    plot_aggregate(machine_vars, "nmachines", "nmachines.pdf")
+    plot_aggregate(machine_vars, "nmachines", out_machines)
 if spec_vars is not None:
-    plot_aggregate(spec_vars, "machine_specs", "machine_specs.pdf")
+    plot_aggregate(spec_vars, "machine_specs", out_specs)
 if split_vars is not None:
-    plot_aggregate(split_vars, "phase_splits", "phase_splits.pdf")
+    plot_aggregate(split_vars, "phase_splits", out_splits)
