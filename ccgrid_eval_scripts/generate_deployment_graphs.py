@@ -54,7 +54,10 @@ job_stop_times = dict()
 
 for rundir in os.listdir(qdir):
 
-    with open(os.path.join(qdir, rundir, "queue.log"), "r") as f:
+    qfile = os.path.join(qdir, rundir, "queue.log")
+    print >>sys.stderr, "Read", qfile
+
+    with open(qfile, "r") as f:
         loglines = f.readlines()
 
     startdate = None
@@ -144,6 +147,7 @@ def add_jobs_delta(node, ts, delta):
 
 job_events = []
 
+print >>sys.stderr, "Read", schedfile
 with open(schedfile, "r") as f:
 
     last_time = None
@@ -160,7 +164,7 @@ with open(schedfile, "r") as f:
             pid = int(bits[2])
             if pid not in job_start_times:
                 # Job from before this experiment began
-                print >>sys.stderr, "Warning: ignore job", pid
+                # print >>sys.stderr, "Warning: ignore job", pid
                 continue
 
             usernode = bits[6]
@@ -183,12 +187,30 @@ for node, points in rawdata["gatk_jobs"].iteritems():
     for i in range(len(points)):
         points[i] = (points[i][0], min(lim, points[i][1]))
 
-for series, nodes in rawdata.iteritems():
+# Finally, acquire data series from the workers' JCatascopia logs.
 
-    print series
-    for node, points in nodes.iteritems():
+for nodelog in os.listdir(jcdir):
 
-        print "\t%s" % node
-        for (ts, val) in points:
-            
-            print "\t\t%s" % ts.isoformat(), val
+    node = nodelog
+    if node.endswith(".log"):
+        node = node[:-4]
+        
+    lfile = os.path.join(jcdir, nodelog)
+    print >>sys.stderr, "Read", lfile
+    with open(lfile, "r") as f:
+
+        for l in f:
+
+            if not l.startswith("{"):
+                continue
+
+            rec = json.loads(l.strip())
+            if "timestamp" not in rec:
+                continue
+
+            ts = datetime.datetime.fromtimestamp(long(rec["timestamp"]) / 1000)
+
+            for met in rec["metrics"]:
+                series = "%s_%s" % (rec["group"], met["name"])
+                add_rawdata(series = series, node = node, ts = ts, value = met["val"])
+                
