@@ -8,17 +8,9 @@ import hillclimb
 import copy
 import itertools
 
-if len(sys.argv) < 2:
-    print >>sys.stderr, "Usage: explore_bestresult.py data_directory"
+def collect_machine_vars(best_spec):
 
-best = bestresult.get_best_result_in(sys.argv[1])[0]
-
-print "Exploring from best result", best
-
-best_spec = best["spec"]
-to_try = []
-
-if best_spec["nmachines"][0] is not None:
+    result = []
 
     if len(best_spec["nmachines"]) == 1:
 
@@ -27,7 +19,7 @@ if best_spec["nmachines"][0] is not None:
         for new_n in range(0, (current_val * 2) + 1, 10):
             new_spec = copy.deepcopy(best_spec)
             new_spec["nmachines"][0] = new_n
-            to_try.append(new_spec)
+            result.append(new_spec)
 
     else:
 
@@ -37,33 +29,74 @@ if best_spec["nmachines"][0] is not None:
             for idx in range(len(best_spec["nmachines"])):
                 new_spec["nmachines"][idx] += i
             
-            to_try.append(new_spec)
+            result.append(new_spec)
 
-if best_spec["machine_specs"][0] is not None:
+    return result
 
-    new_cores_l = itertools.product([1,2,4], repeat=len(best_spec["machine_specs"]))
-    for new_cores in new_cores_l:
+def collect_product_vars(best_spec, keyname, vals):
 
-        new_spec = copy.deepcopy(best_spec)
-        new_spec["machine_specs"] = list(new_cores)
-        to_try.append(new_spec)
+    result = []
 
-if best_spec["phase_splits"][0] is not None:
-
-    new_splits_l = itertools.product([1,2,4], repeat=len(best_spec["phase_splits"]))
-    for new_splits in new_splits_l:
+    new_vals_l = itertools.product(vals, repeat=len(best_spec[keyname]))
+    for new_vals in new_vals_l:
 
         new_spec = copy.deepcopy(best_spec)
-        new_spec["phase_splits"] = list(new_splits)
-        to_try.append(new_spec)
+        new_spec[keyname] = list(new_vals)
+        result.append(new_spec)
 
-to_try = filter(hillclimb.valid_params, to_try)
+    return result
 
-print "Trying", len(to_try), "variants"
+def collect_spec_vars(best_spec):
+    return collect_product_vars(best_spec, "machine_specs", [1,2,4])
 
-hillclimb.workdir = sys.argv[1]
+def collect_split_vars(best_spec):
+    vars = collect_product_vars(best_spec, "phase_splits", [1,2,4])
+    if len(best_spec["nmachines"]) == 8:
+        for v in vars:
+            if all([x == 1 for x in v["phase_splits"]]):
+                v["nmachines"].pop()
+                v["machine_specs"].pop()
+    elif len(best_spec["nmachines"]) == 7:
+        for v in vars:
+            if not all([x == 1 for x in v["phase_splits"]]):
+                v["nmachines"].append(None if v["nmachines"][0] is None else 1)
+                v["machine_specs"].append(None if v["machine_specs"][0] is None else 1)
+    return vars
 
-for t in to_try:
-    hillclimb.start_trial(t)
+def collect_vars(best_spec):
 
-hillclimb.await_running_tries()
+    to_try = []
+
+    if best_spec["nmachines"][0] is not None:
+        to_try.extend(collect_machine_vars(best_spec))
+
+    if best_spec["machine_specs"][0] is not None:
+        to_try.extend(collect_spec_vars(best_spec))
+
+    if best_spec["phase_splits"][0] is not None:
+        to_try.extend(collect_split_vars(best_spec))
+
+    to_try = filter(hillclimb.valid_params, to_try)
+
+    return to_try
+
+if __name__ == "__main__":
+
+    if len(sys.argv) < 2:
+        print >>sys.stderr, "Usage: explore_bestresult.py data_directory"
+
+    best = bestresult.get_best_result_in(sys.argv[1])[0]
+
+    print "Exploring from best result", best
+
+    best_spec = best["spec"]
+    to_try = collect_vars(best_spec)
+
+    print "Trying", len(to_try), "variants"
+
+    hillclimb.workdir = sys.argv[1]
+
+    for t in to_try:
+        hillclimb.start_trial(t)
+
+    hillclimb.await_running_tries()
