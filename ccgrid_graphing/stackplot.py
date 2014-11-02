@@ -12,7 +12,9 @@ series_markers = [' ', '|']
 
 def draw_stackplot(plots, xlabel, ylabel, save_file = None):
 
-    fig = plt.figure(figsize = (4, len(plots)))
+    plotheight = 2 if len(plots) == 1 else len(plots)
+
+    fig = plt.figure(figsize = (4, plotheight))
 
     if len(plots) > 1:
 
