@@ -268,15 +268,13 @@ def derive_series(ins, outs, f):
 
 print >>sys.stderr, "Create derived series"
 sum_series("NetworkProbe_netBytesIN", "NetworkProbe_netBytesOUT", "NetworkProbe_netBytesTotal")
-derive_series("NetworkProbe_netBytesTotal", "NetworkProbe_netgbps", lambda x: float(x) / (1024 * 1024 * 1024))
-sum_series("DiskStatsProbe_readkbps", "DiskStatsProbe_writekbps", "DiskStatsProbe_totalkbps")
-derive_series("DiskStatsProbe_totalkbps", "DiskStatsProbe_totalgbps", lambda x: float(x) / (1024 * 1024 * 1024))
+derive_series("NetworkProbe_netBytesTotal", "NetworkProbe_netmbps", lambda x: float(x) / (1024 * 1024))
 derive_series("MemoryProbe_memUsed", "MemoryProbe_GBUsed", lambda x: float(x) / (1024 * 1024))
 
 print >>sys.stderr, "Calculate aggregate series"
 
-draw_series = ["coord_jobs", "gatk_jobs", "CPUProbe_cpuTotal", "MemoryProbe_GBUsed", "NetworkProbe_netgbps", "DiskStatsProbe_totalgbps"]
-series_friendly_names = ["Active pipeline runs", "Active pipeline phases", "Total CPU utilisation", "Total memory utilisation (GB)", "Total network bandwidth (gbps)", "Total disk bandwidth (gbps)"]
+draw_series = ["coord_jobs", "gatk_jobs", "CPUProbe_cpuTotal", "MemoryProbe_GBUsed", "NetworkProbe_netmbps"]
+series_friendly_names = ["Active pipeline runs", "Active pipeline phases", "Total CPU utilisation", "Total memory utilisation (GB)", "Total network bandwidth (MBps)"]
 
 aggseries = dict()
 
