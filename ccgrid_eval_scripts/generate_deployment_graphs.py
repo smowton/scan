@@ -341,4 +341,4 @@ execution_times = sorted(execution_times)
 
 print execution_times
 
-ccgrid_graphing.distplot.draw_distribution_plot(execution_times, binsize = 50, xlabel = "Pipeline analysis duration", ylabel = "Number of samples", save_file = os.path.join(outdir, "execution_times.pdf"))
+ccgrid_graphing.distplot.draw_distribution_plot(execution_times, binsize = 50, xlabel = "Pipeline analysis duration (minutes)", ylabel = "Number of samples", save_file = os.path.join(outdir, "execution_times.pdf"))
