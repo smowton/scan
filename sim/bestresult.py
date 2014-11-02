@@ -49,7 +49,8 @@ def get_best_result_in(root_dir, match_nmachines = None, match_cores = None, mat
 
                     result = sum([load_try(i) for i in range(10)]) / 10
                     spec = {"phase_splits": splitdir, "machine_specs": coredir, "nmachines": machinedir}
-                    spec = {k: dirname_to_list(v) for (k, v) in spec.iteritems()}
+                    for (k, v) in spec.items():
+                        spec[k] = dirname_to_list(v)
 
                     results.append({"spec": spec, "result": result})
 

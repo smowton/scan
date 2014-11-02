@@ -59,9 +59,22 @@ if len(cores_points[0]) > 100:
 
 plots = []
 
-for (core_points, job_points, times) in zip(cores_points, jobs_points, series_times):
+if len(jobs_points) == 1:
+    phase_titles = ["Active analysis tasks"]
+else:
+    phase_titles = ["Active phase 1 (RealignerTargetCreator) tasks",
+                    "Active phase 2 (IndelRealigner) tasks",
+                    "Active phase 3 (BQSR) tasks",
+                    "Active phase 4 (PrintReads) tasks",
+                    "Active phase 5 (UnifiedGenotyper) tasks",
+                    "Active phase 6 (VariantFiltration) tasks",
+                    "Active phase 7 (VariantEval) tasks"]
+    if len(jobs_points) == 8:
+        phase_titles.append("Active gather tasks")
 
-    plots.append([(times, job_points), (times, core_points)])
+for (core_points, job_points, times, title) in zip(cores_points, jobs_points, series_times, phase_titles):
+
+    plots.append((title, [(times, job_points)]))
 
 ccgrid_graphing.stackplot.draw_stackplot(plots, xlabel = "Sim time elapsed (minutes)", ylabel = "Active jobs or cores", save_file = save_file)
 

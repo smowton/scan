@@ -9,7 +9,7 @@ import explore_bestresult
 import hillclimb
 import matplotlib.pyplot as plt
 
-def plot_errbars(points, filename):
+def plot_errbars(points, xlabel, filename):
 
     points = sorted(points, key = lambda x: x[0])
     
@@ -17,12 +17,15 @@ def plot_errbars(points, filename):
     ys = [ymed for (x, (ymin, ymed, ymax)) in points]
     lowerror = [ymed - ymin for (x, (ymin, ymed, ymax)) in points]
     higherror = [ymax - ymed for (x, (ymin, ymed, ymax)) in points]
-    plt.figure()
-    plt.errorbar(xs, ys, yerr=(lowerror, higherror))
+    plt.figure(figsize=(4,4))
+    plt.errorbar(xs, ys, yerr=(lowerror, higherror), color='k')
+    plt.xlabel(xlabel)
+    plt.ylabel("Reward-to-cost ratio")
+    plt.tight_layout()
     print "Writing", filename
     plt.savefig(filename)
 
-def plot_aggregate(params, axis, filename):
+def plot_aggregate(params, axis, xlabel, filename):
 
     agg_ratios = dict()
 
@@ -42,10 +45,10 @@ def plot_aggregate(params, axis, filename):
 
     points = [(k, (v[0], v[len(v)/2], v[-1])) for (k, v) in agg_ratios]
 
-    plot_errbars(points, filename)
+    plot_errbars(points, xlabel, filename)
 
 if len(sys.argv) < 3:
-    print >>sys.stderr, "Usage: config_plot.py data_dir out_dir"
+    print >>sys.stderr, "Usage: config_plot.py data_dir out_dir plot_title"
 
 data_dir = sys.argv[1]
 out_dir = sys.argv[2]
@@ -78,8 +81,8 @@ def validate(l):
 (machine_vars, spec_vars, split_vars) = map(validate, (machine_vars, spec_vars, split_vars))
 
 if machine_vars is not None:
-    plot_aggregate(machine_vars, "nmachines", out_machines)
+    plot_aggregate(machine_vars, "nmachines", "Total number of machines employed", out_machines)
 if spec_vars is not None:
-    plot_aggregate(spec_vars, "machine_specs", out_specs)
+    plot_aggregate(spec_vars, "machine_specs", "Total core-stages per pipeline run", out_specs)
 if split_vars is not None:
-    plot_aggregate(split_vars, "phase_splits", out_splits)
+    plot_aggregate(split_vars, "phase_splits", "Total processes per pipeline run", out_splits)
