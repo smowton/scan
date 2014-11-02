@@ -339,11 +339,11 @@ for series, aggdata in aggseries.iteritems():
         if x > bucketlim or x is None:
             # Finished bucket
             if len(acc) > 0:
-                newxs = [x for (x, y) in acc]
-                newys = [y for (x, y) in acc]
+                newxs = [x2 for (x2, y2) in acc]
+                newys = [y2 for (x2, y2) in acc]
                 newseries.append((sum(newxs) / len(newxs), sum(newys) / len(newys)))
-                acc = []
-            while bucketlim < x:
+                del acc[:]
+            while bucketlim < x and x is not None:
                 bucketlim += bucketsize
         acc.append((x, y))
 
