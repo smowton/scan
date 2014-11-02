@@ -172,6 +172,11 @@ with open(schedfile, "r") as f:
 
             usernode = bits[6]
             node = usernode.split("@")[1][:-2]
+
+	    if node.find("'") != -1:
+		# HACK: work around torn log lines
+		node = node.split("'")[0]
+		print >>sys.stderr, "Warning: hacked around torn log turning", usernode, "into", node
         
             job_events.append((node, job_start_times[pid], 1))
             if pid in job_stop_times: # Ongoing?
