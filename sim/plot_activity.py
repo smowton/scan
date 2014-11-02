@@ -1,21 +1,13 @@
 #!/usr/bin/python
 
 import sys
-import matplotlib
-import matplotlib.pyplot as plt
+
+import ccgrid_graphing.stackplot
 
 if len(sys.argv) < 2:
     save_file = None
 else:
     save_file = sys.argv[1]
-
-matplotlib.rcParams['font.size'] = 8
-
-jobs_colour = 'k'
-cores_colour = '0.25'
-
-jobs_marker = ' '
-cores_marker = '|'
 
 cores_points = []
 jobs_points = []
@@ -63,30 +55,13 @@ if len(cores_points[0]) > 100:
     jobs_points = downsample_list(jobs_points, order)
     series_times = downsample_list(series_times, order)
 
-fig = plt.figure(figsize = (4, len(cores_points) * 2), dpi=300)
-masterax = fig.add_subplot(111, axisbg='none')
-masterax.spines['top'].set_color('none')
-masterax.spines['bottom'].set_color('none')
-masterax.spines['left'].set_color('none')
-masterax.spines['right'].set_color('none')
-masterax.tick_params(labelcolor='none', top='off', bottom='off', left='off', right='off')
-   
-for i, (core_points, job_points, times) in enumerate(zip(cores_points, jobs_points, series_times)):
+# Draw a plotlet for each phase, and within that, a series for cores and a series for jobs.
 
-    arg = int("%s%s%s" % (len(cores_points), 1, i+1))
-    ax = fig.add_subplot(arg)
-    ax.plot(times, core_points, color=cores_colour, marker=cores_marker)
-    ax.plot(times, job_points, color=jobs_colour, marker=jobs_marker)
-    if i != len(cores_points) - 1:
-        ax.set_xticklabels([])
-    else:
-        ax.set_xlabel("Sim time elapsed (minutes)")
-    lims = ax.get_ylim()
-    ax.set_ylim(lims[0], lims[1] + 1)
+plots = []
 
-masterax.set_ylabel("Active jobs or cores")
+for (core_points, job_points, times) in zip(cores_points, jobs_points, series_times):
 
-if save_file is None:
-    plt.show()
-else:
-    plt.savefig(save_file)
+    plots.append([(times, job_points), (times, core_points)])
+
+ccgrid_graphing.stackplot.draw_stackplot(plots, xlabel = "Sim time elapsed (minutes)", ylabel = "Active jobs or cores", save_file = save_file)
+

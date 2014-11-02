@@ -5,14 +5,17 @@ import datetime
 import os
 import json
 
+import ccgrid_graphing.stackplot
+
 if len(sys.argv) < 3:
-    print >>sys.stderr, "Usage: generate_deployment_graphs.py queuelogs_directory jclogs_directory schedlog_file cluster_file"
+    print >>sys.stderr, "Usage: generate_deployment_graphs.py queuelogs_directory jclogs_directory schedlog_file cluster_file outdir"
     sys.exit(1)
 
 qdir = sys.argv[1]
 jcdir = sys.argv[2]
 schedfile = sys.argv[3]
 clusterfile = sys.argv[4]
+outdir = sys.argv[5]
 
 with open(clusterfile, "r") as f:
     cluster = json.load(f)
@@ -212,5 +215,97 @@ for nodelog in os.listdir(jcdir):
 
             for met in rec["metrics"]:
                 series = "%s_%s" % (rec["group"], met["name"])
-                add_rawdata(series = series, node = node, ts = ts, value = met["val"])
+                if met["type"] == "STRING":
+                    val = met["val"]
+                else:
+                    val = float(met["val"])
+                    
+                add_rawdata(series = series, node = node, ts = ts, value = val)
                 
+# Create derived series:
+
+def sum_series(in1, in2, out):
+
+    assert out not in rawdata
+    rawdata[out] = dict()
+
+    datapairs = [(x, rawdata[in1][x], rawdata[in2][x]) for x in rawdata[in1]]
+
+    for (node, in1points, in2points) in datapairs:
+        rawdata[out][node] = [(ts, x + y) for ((ts, x), (ts2, y)) in zip(in1points, in2points)]
+
+def derive_series(ins, outs, f):
+
+    assert outs not in rawdata
+    rawdata[outs] = dict()
+
+    for (node, points) in rawdata[ins].iteritems():
+        
+        rawdata[outs][node] = [(ts, f(x)) for (ts, x) in points]
+
+print >>sys.stderr, "Create derived series"
+sum_series("NetworkProbe_netBytesIN", "NetworkProbe_netBytesOUT", "NetworkProbe_netBytesTotal")
+derive_series("NetworkProbe_netBytesTotal", "NetworkProbe_netkbps", lambda x: x / 1024)
+sum_series("DiskStatsProbe_readkbps", "DiskStatsProbe_writekbps", "DiskStatsProbe_totalkbps")
+
+print >>sys.stderr, "Calculate aggregate series"
+
+draw_series = ["coord_jobs", "gatk_jobs", "CPUProbe_cpuTotal", "MemoryProbe_memUsed", "NetworkProbe_netkbps", "DiskStatsProbe_totalkbps"]
+
+aggseries = dict()
+
+# Force all series to start with the first coordinator point
+first_ts = None
+latest_ts = None
+
+def totalseconds(td):
+
+    return float(td.seconds + (td.days * 24 * 3600))
+
+for series in draw_series:
+
+    alldata = []
+    for node, points in rawdata[series].iteritems():
+        alldata.extend([(node, ts, val) for (ts, val) in points])
+
+    alldata = sorted(alldata, key = lambda x : x[1])
+
+    aggdata = []
+    latestvals = dict()
+
+    if first_ts is None:
+        first_ts = alldata[0][1]
+    
+    for (node, ts, val) in alldata:
+
+        latestvals[node] = val
+        if ts < first_ts:
+            continue
+
+        aggdata.append((ts - first_ts, sum(latestvals.values())))
+
+    if latest_ts is None or alldata[-1][1] > latest_ts:
+        latest_ts = alldata[-1][1]
+
+    aggseries[series] = aggdata
+
+# Extend short series with a flat line to the end.
+
+for aggdata in aggseries.itervalues():
+
+    last_td, last_val = aggdata[-1]
+
+    if last_td < (latest_ts - first_ts):
+        aggdata.append((latest_ts - first_ts, last_val))
+
+# Express times as hours since the start, and tabulate for matplotlib:
+
+graphseries = dict()
+
+for series, aggdata in aggseries.iteritems():
+    graphseries[series] = ([totalseconds(x) / (60 * 60) for (x, y) in aggdata], [y for (x, y) in aggdata])
+
+# All data acquired. Draw the big summary graph.
+
+ccgrid_graphing.stackplot.draw_stackplot([[x] for x in graphseries.itervalues()], xlabel = "Timestamp", ylabel = "Value", save_file = os.path.join(outdir, "summary.pdf"))
+
