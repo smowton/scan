@@ -9,7 +9,7 @@ import ccgrid_graphing.stackplot
 import ccgrid_graphing.distplot
 
 if len(sys.argv) < 6:
-    print >>sys.stderr, "Usage: generate_deployment_graphs.py queuelogs_directory jclogs_directory schedlog_file cluster_file outdir [disable_net_disk]"
+    print >>sys.stderr, "Usage: generate_deployment_graphs.py queuelogs_directory jclogs_directory schedlog_file cluster_file outdir [disable_net]"
     sys.exit(1)
 
 qdir = sys.argv[1]
@@ -17,9 +17,9 @@ jcdir = sys.argv[2]
 schedfile = sys.argv[3]
 clusterfile = sys.argv[4]
 outdir = sys.argv[5]
-disable_net_disk = len(sys.argv) >= 7 and sys.argv[6] == "disable_net_disk"
+disable_net = len(sys.argv) >= 7 and sys.argv[6] == "disable_net"
 
-if disable_net_disk:
+if disable_net:
     print >>sys.stderr, "EXCLUDING network and disk stats"
 else:
     print >>sys.stderr, "INCLUDING network and disk stats"
@@ -322,18 +322,37 @@ for aggdata in aggseries.itervalues():
     if last_td < (latest_ts - first_ts):
         aggdata.append((latest_ts - first_ts, last_val))
 
-# Express times as hours since the start, and tabulate for matplotlib:
+# Express times as hours since the start, and tabulate for matplotlib.
+# Also take averages over time ranges for readability. Aim for at most 500 points on the graph.
 
+npoints = 500
+bucketsize = (totalseconds(latest_ts - first_ts) / (60 * 60)) / npoints
 graphseries = dict()
 
 for series, aggdata in aggseries.iteritems():
-    graphseries[series] = ([totalseconds(x) / (60 * 60) for (x, y) in aggdata], [y for (x, y) in aggdata])
+
+    points_hrs = [(totalseconds(x) / (60 * 60), y) for (x, y) in aggdata]
+    newseries = []
+    bucketlim = bucketsize
+    acc = []
+    for (x, y) in (points_hrs + [(None, None)]):
+        if x > bucketlim or x is None:
+            # Finished bucket
+            if len(acc) > 0:
+                newxs = [x for (x, y) in acc]
+                newys = [y for (x, y) in acc]
+                newseries.append((sum(newxs) / len(newxs), sum(newys) / len(newys)))
+                acc = []
+            bucketlim += bucketsize
+        acc.append((x, y))
+
+    graphseries[series] = ([x for (x, y) in newseries], [y for (x, y) in newseries])
 
 # All data acquired. Draw the big summary graph.
 
-if disable_net_disk:
-    draw_series = draw_series[:-2]
-    series_friendly_names = series_friendly_names[:-2]
+if disable_net:
+    draw_series = draw_series[:-1]
+    series_friendly_names = series_friendly_names[:-1]
 
 ccgrid_graphing.stackplot.draw_stackplot([(title, [graphseries[series]]) for (series, title) in zip(draw_series, series_friendly_names)], xlabel = "Time (hours)", ylabel = "Value", save_file = os.path.join(outdir, "summary.pdf"))
 
