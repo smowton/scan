@@ -6,9 +6,10 @@ import os
 import json
 
 import ccgrid_graphing.stackplot
+import ccgrid_graphing.distplot
 
-if len(sys.argv) < 3:
-    print >>sys.stderr, "Usage: generate_deployment_graphs.py queuelogs_directory jclogs_directory schedlog_file cluster_file outdir"
+if len(sys.argv) < 6:
+    print >>sys.stderr, "Usage: generate_deployment_graphs.py queuelogs_directory jclogs_directory schedlog_file cluster_file outdir [disable_net_disk]"
     sys.exit(1)
 
 qdir = sys.argv[1]
@@ -16,6 +17,12 @@ jcdir = sys.argv[2]
 schedfile = sys.argv[3]
 clusterfile = sys.argv[4]
 outdir = sys.argv[5]
+disable_net_disk = len(sys.argv) >= 7 and sys.argv[6] == "disable_net_disk"
+
+if disable_net_disk:
+    print >>sys.stderr, "EXCLUDING network and disk stats"
+else:
+    print >>sys.stderr, "INCLUDING network and disk stats"
 
 with open(clusterfile, "r") as f:
     cluster = json.load(f)
@@ -50,6 +57,7 @@ def get_rawdata_series(series, node):
 # First: Queue running times.
 
 qevents = dict()
+qdurations = []
 job_start_times = dict()
 job_stop_times = dict()
 
@@ -69,6 +77,8 @@ for rundir in os.listdir(qdir):
 
     firsttime = None
     lasttime = datetime.time(0, 0, 0, 0)
+
+    completed = False
 
     for l in loglines:
         
@@ -111,6 +121,9 @@ for rundir in os.listdir(qdir):
             pid = int(l.split()[-2])
             job_stop_times[pid] = linedt
 
+        elif l.find("Script completed successfully with 7 total jobs") != -1:
+            completed = True
+
     if startdate is None:
         print >>sys.stderr, "Warning: ignore queue file", rundir
         continue
@@ -122,6 +135,11 @@ for rundir in os.listdir(qdir):
         qevents[runnode] = []
     qevents[runnode].append((startts, 1))
     qevents[runnode].append((endts, -1))
+
+    if completed:
+        if (endts - startts) < datetime.timedelta(minutes = 100):
+            print >>sys.stderr, rundir, "Ran for unusually short time", endts - startts
+        qdurations.append(endts - startts)
 
 # Convert these delta events into running totals.
 
@@ -250,12 +268,15 @@ def derive_series(ins, outs, f):
 
 print >>sys.stderr, "Create derived series"
 sum_series("NetworkProbe_netBytesIN", "NetworkProbe_netBytesOUT", "NetworkProbe_netBytesTotal")
-derive_series("NetworkProbe_netBytesTotal", "NetworkProbe_netkbps", lambda x: x / 1024)
+derive_series("NetworkProbe_netBytesTotal", "NetworkProbe_netgbps", lambda x: float(x) / (1024 * 1024 * 1024))
 sum_series("DiskStatsProbe_readkbps", "DiskStatsProbe_writekbps", "DiskStatsProbe_totalkbps")
+derive_series("DiskStatsProbe_totalkbps", "DiskStatsProbe_totalgbps", lambda x: float(x) / (1024 * 1024 * 1024))
+derive_series("MemoryProbe_memUsed", "MemoryProbe_GBUsed", lambda x: float(x) / (1024 * 1024))
 
 print >>sys.stderr, "Calculate aggregate series"
 
-draw_series = ["coord_jobs", "gatk_jobs", "CPUProbe_cpuTotal", "MemoryProbe_memUsed", "NetworkProbe_netkbps", "DiskStatsProbe_totalkbps"]
+draw_series = ["coord_jobs", "gatk_jobs", "CPUProbe_cpuTotal", "MemoryProbe_GBUsed", "NetworkProbe_netgbps", "DiskStatsProbe_totalgbps"]
+series_friendly_names = ["Active pipeline runs", "Active pipeline phases", "Total CPU utilisation", "Total memory utilisation (GB)", "Total network bandwidth (gbps)", "Total disk bandwidth (gbps)"]
 
 aggseries = dict()
 
@@ -312,5 +333,17 @@ for series, aggdata in aggseries.iteritems():
 
 # All data acquired. Draw the big summary graph.
 
-ccgrid_graphing.stackplot.draw_stackplot([[x] for x in graphseries.itervalues()], xlabel = "Timestamp", ylabel = "Value", save_file = os.path.join(outdir, "summary.pdf"))
+if disable_net_disk:
+    draw_series = draw_series[:-2]
+    series_friendly_names = series_friendly_names[:-2]
 
+ccgrid_graphing.stackplot.draw_stackplot([(title, [graphseries[series]]) for (series, title) in zip(draw_series, series_friendly_names)], xlabel = "Time (hours)", ylabel = "Value", save_file = os.path.join(outdir, "summary.pdf"))
+
+# Draw a graph of the pipeline execution time distribution
+
+execution_times = [totalseconds(qrun) / 60 for qrun in qdurations]
+execution_times = sorted(execution_times)
+
+print execution_times
+
+ccgrid_graphing.distplot.draw_distribution_plot(execution_times, binsize = 50, xlabel = "Pipeline analysis duration (minutes)", ylabel = "Number of samples", save_file = os.path.join(outdir, "execution_times.pdf"))
