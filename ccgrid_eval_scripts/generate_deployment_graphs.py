@@ -343,7 +343,8 @@ for series, aggdata in aggseries.iteritems():
                 newys = [y for (x, y) in acc]
                 newseries.append((sum(newxs) / len(newxs), sum(newys) / len(newys)))
                 acc = []
-            bucketlim += bucketsize
+            while bucketlim < x:
+                bucketlim += bucketsize
         acc.append((x, y))
 
     graphseries[series] = ([x for (x, y) in newseries], [y for (x, y) in newseries])
