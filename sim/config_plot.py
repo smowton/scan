@@ -8,6 +8,9 @@ import bestresult
 import explore_bestresult
 import hillclimb
 import matplotlib.pyplot as plt
+import matplotlib
+
+matplotlib.rcParams['font.size'] = 8
 
 def plot_errbars(points, xlabel, filename):
 
@@ -17,7 +20,7 @@ def plot_errbars(points, xlabel, filename):
     ys = [ymed for (x, (ymin, ymed, ymax)) in points]
     lowerror = [ymed - ymin for (x, (ymin, ymed, ymax)) in points]
     higherror = [ymax - ymed for (x, (ymin, ymed, ymax)) in points]
-    plt.figure(figsize=(4,4))
+    plt.figure(figsize=(4,2))
     plt.errorbar(xs, ys, yerr=(lowerror, higherror), color='k')
     plt.xlabel(xlabel)
     plt.ylabel("Reward-to-cost ratio")

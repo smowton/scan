@@ -12,7 +12,7 @@ def draw_distribution_plot(vals, binsize, xlabel, ylabel, save_file = None):
     firstbin = (long(vals[0]) / binsize) * binsize
     lastbin = (((long(vals[-1]) / binsize) + 1) * binsize)
 
-    plt.figure(figsize = (4, 4))
+    plt.figure(figsize = (4, 2))
     plt.hist(vals, bins = range(firstbin, lastbin + binsize, binsize), color = "0.25")
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
