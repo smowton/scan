@@ -5,19 +5,23 @@ import datetime
 import os
 import json
 
+import matplotlib
+matplotlib.use('Agg')
+
 import ccgrid_graphing.stackplot
 import ccgrid_graphing.distplot
 
-if len(sys.argv) < 6:
-    print >>sys.stderr, "Usage: generate_deployment_graphs.py queuelogs_directory jclogs_directory schedlog_file cluster_file outdir [disable_net]"
+if len(sys.argv) < 7:
+    print >>sys.stderr, "Usage: generate_deployment_graphs.py queuelogs_directory jclogs_directory schedlog_file cluster_file cpus_per_physical_node outdir [disable_net]"
     sys.exit(1)
 
 qdir = sys.argv[1]
 jcdir = sys.argv[2]
 schedfile = sys.argv[3]
 clusterfile = sys.argv[4]
-outdir = sys.argv[5]
-disable_net = len(sys.argv) >= 7 and sys.argv[6] == "disable_net"
+cpus_per_phys_node = float(sys.argv[5])
+outdir = sys.argv[6]
+disable_net = len(sys.argv) >= 8 and sys.argv[7] == "disable_net"
 
 if disable_net:
     print >>sys.stderr, "EXCLUDING network and disk stats"
@@ -177,7 +181,11 @@ with open(schedfile, "r") as f:
 
         if l.startswith("127.0.0.1"):
             bits = l.split()
-            last_time = datetime.datetime.strptime(bits[3], "[%d/%b/%Y:%H:%M:%S]")
+            try:
+                last_time = datetime.datetime.strptime(bits[3], "[%d/%b/%Y:%H:%M:%S]")
+            except:
+                print >>sys.stderr, "Warning, skip torn line", l
+                continue
 
         elif l.startswith("Start process"):
 
@@ -270,10 +278,11 @@ print >>sys.stderr, "Create derived series"
 sum_series("NetworkProbe_netBytesIN", "NetworkProbe_netBytesOUT", "NetworkProbe_netBytesTotal")
 derive_series("NetworkProbe_netBytesTotal", "NetworkProbe_netmbps", lambda x: float(x) / (1024 * 1024))
 derive_series("MemoryProbe_memUsed", "MemoryProbe_GBUsed", lambda x: float(x) / (1024 * 1024))
+derive_series("CPUProbe_cpuTotal", "CPUProbe_cpuCores", lambda x: (float(x) * cpus_per_phys_node) / 100)
 
 print >>sys.stderr, "Calculate aggregate series"
 
-draw_series = ["coord_jobs", "gatk_jobs", "CPUProbe_cpuTotal", "MemoryProbe_GBUsed", "NetworkProbe_netmbps"]
+draw_series = ["coord_jobs", "gatk_jobs", "CPUProbe_cpuCores", "MemoryProbe_GBUsed", "NetworkProbe_netmbps"]
 series_friendly_names = ["Active pipeline runs", "Active pipeline phases", "Total CPU utilisation", "Total memory utilisation (GB)", "Total network bandwidth (MBps)"]
 
 aggseries = dict()
