@@ -109,10 +109,10 @@ class SubmitUI:
 
 class MulticlassScheduler:
 
-        def __init__(self, httpqueue, classfile):
+        def __init__(self, httpqueue, classfile, classargs):
 
                 if classfile is not None:
-                        self.classes = imp.load_source("user_classes_module", classfile).getclasses()
+                        self.classes = imp.load_source("user_classes_module", classfile).getclasses(**classargs)
                 else:
                         self.classes = [{"name": "linux",
                                          "user": "user",
@@ -614,8 +614,21 @@ class TaskPoller:
         def stop(self):
                 self.stop_event.set()
 
+classfile = None
+classargs = {}
+
+if len(sys.argv) >= 2:
+        classfile = sys.argv[1]
+        for arg in sys.argv[2:]:
+                bits = [a.strip() for a in arg.split("=", 1)]
+                if len(bits) != 2:
+                        print >>sys.stderr, "Bad argument", arg, "should have form key=value"
+                        sys.exit(1)
+                classargs[bits[0]] = bits[1]
+
 httpqueue = HttpQueue()
-sched = MulticlassScheduler(httpqueue, sys.argv[1] if len(sys.argv) >= 2 else None)
+
+sched = MulticlassScheduler(httpqueue, classfile, classargs)
 poller = TaskPoller(sched)
 
 def thread_stop():
