@@ -13,7 +13,7 @@ class ResultViewer:
         if host_key not in os.environ:
             dbhost = "localhost"
         else:
-            dbhost = os.environ['SCAN_DB_HOST']
+            dbhost = os.environ[host_key]
         try:
             self.conn, self.cursor = cqlscan.cql_connect(host = dbhost)
         except Exception as e:
