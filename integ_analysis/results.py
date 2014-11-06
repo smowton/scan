@@ -3,12 +3,19 @@ import threading
 import websupport
 import cherrypy
 import sys
+import os
 
 class ResultViewer:
 
     def __init__(self):
+        
+        host_key = 'SCAN_DB_HOST'
+        if host_key not in os.environ:
+            dbhost = "localhost"
+        else:
+            dbhost = os.environ['SCAN_DB_HOST']
         try:
-            self.conn, self.cursor = cqlscan.cql_connect()
+            self.conn, self.cursor = cqlscan.cql_connect(host = dbhost)
         except Exception as e:
             print >>sys.stderr, "Failed to connect to Cassandra, results unavailable"
             self.conn = None
