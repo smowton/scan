@@ -1,7 +1,25 @@
 #!/bin/bash
 # Ready a worker, based on Ubuntu Server LTS / 14.04 Okeanos image:
 
-apt-get install default-jre git python
+apt-get -y install cifs-utils
+
+#
+# update system
+#
+apt-get -o DPkg::options::="--force-confdef" -o DPkg::options::="--force-confold" -y upgrade
+mkdir /mnt/nfs
+
+# Wait for the scheduler to start CIFS server (nfs name is historical):
+RDY1=`ss-get scheduler.1:nfs_ready`
+while [ $RDY1 != "1" ]; do
+    echo "Waiting for the scheduler..."
+    sleep 1
+    RDY1=`ss-get scheduler.1:nfs_ready`
+done
+
+mount -t cifs //`ss-get --timeout 480 scheduler.1:hostname`/share /mnt/nfs -o username=guest,password=''
+
+apt-get -y install default-jre python
 
 # Fetch the GATK:
 mkdir ~/gatk
@@ -13,22 +31,25 @@ cd ~
 git clone https://github.com/smowton/scan.git
 
 # Fetch JCatascopia standard probes, etc.
-
+# Not implemented yet
 # Wait for the scheduler:
-RDY=`ss-get sched_ready`
-while [ $RDY != "1" ]; do
+RDY2=`ss-get scheduler.1:sched_ready`
+while [ $RDY2 != "1" ]; do
     echo "Waiting for the scheduler..."
     sleep 1
-    RDY=`ss-get sched_ready`
+    RDY2=`ss-get scheduler.1:sched_ready`
 done
 
 # Enable passwordless SSH access (for example?)
 mkdir ~/.ssh
-ss-get authorized-keys > ~/.ssh/authorized_keys
+
+# auth_keys might not end with a newline at the moment
+echo >> ~/.ssh/authorized_keys
+echo `ss-get scheduler.1:authorized_keys | base64 -d` >> ~/.ssh/authorized_keys
 
 # Machine is now ready to be a GATK worker. Register it:
-SCHED_ADDRESS=`ss-get sched_address`
+SCHED_ADDRESS=`ss-get scheduler.1:sched_address`
 # This might be tricky: discover my own class. The orchestrator knew this, and somehow needs to get that information through to the Slipstream phase.
-WORKER_CLASS=`ss-get this_worker_class`
-ME=`hostname -f`
+WORKER_CLASS=`ss-get nodename`
+
 ~/scan/register_worker.py $SCHED_ADDRESS $WORKER_CLASS
