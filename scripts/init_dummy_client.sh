@@ -13,9 +13,12 @@ cd /tmp
 wget http://scala-lang.org/files/archive/scala-2.10.2.deb
 dpkg -i scala-2.10.2.deb
 
-# Fetch JSON.org:
-cd ~/scan
-wget "http://search.maven.org/remotecontent?filepath=org/codeartisans/org.json/20131017/org.json-20131017.jar" -O json-org.jar
+# Build json.org. Still in /tmp:
+git clone https://github.com/douglascrockford/JSON-java.git
+mkdir -p org/json
+mv JSON-java/* org/json/
+javac org/json/*.java org/json/zip/*.java
+jar cvf ~/scan/json-org.jar org
 
 # Wait for the scheduler to start CIFS server (nfs name is historical):
 RDY1=`ss-get scheduler.1:nfs_ready`
@@ -33,7 +36,7 @@ wget http://cs448.user.srcf.net/Queue-3.1-smowton.jar
 
 # Build JobRunner
 cd ~/scan/queue_jobrunner
-scalac -cp /mnt/nfs/Queue-3.1-smowton.jar:~/scan/json-org.jar *.scala
+scalac -cp /mnt/nfs/Queue-3.1-smowton.jar:/root/scan/json-org.jar *.scala
 
 # Wait for scheduler:
 RDY2=`ss-get scheduler.1:sched_ready`
