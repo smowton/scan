@@ -47,7 +47,12 @@ class ResultViewer:
 
             if k.find("\t") != -1:
                 bits = k.split("\t")
-                genome_muts.append({"desc": "%s:%s" % (bits[0], bits[1]), "name": k, "sortkey": int(bits[0])})
+		try:
+			sk = int(bits[0])
+			sk = "A%04d" % sk
+		except ValueError:
+			sk = "B%s" % bits[0]
+                genome_muts.append({"desc": "%s:%s" % (bits[0], bits[1]), "name": k, "sortkey": sk})
             elif k.find("-intensity") != -1:
                 expressions.append({"desc": k[:-len("-intensity")], "name": k, "sortkey": k})
             elif k.find("mutated_") != -1:
