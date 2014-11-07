@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -x
 
 #
 # update system
@@ -10,7 +10,7 @@ apt-get -y install cifs-utils default-jre python default-jdk libjansi-java
 
 # Install Scala:
 cd /tmp
-http://scala-lang.org/files/archive/scala-2.10.2.deb
+wget http://scala-lang.org/files/archive/scala-2.10.2.deb
 dpkg -i scala-2.10.2.deb
 
 # Fetch JSON.org:
