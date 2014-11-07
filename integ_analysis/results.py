@@ -60,7 +60,7 @@ class ResultViewer:
 
         getkey = lambda x: x["sortkey"]
 
-        return (sorted(genome_muts, key=getkey), sorted(protein_muts, key=getkey), sorted(expressions, key=getkey))
+        return (sorted(genome_muts, key=getkey)[:20], sorted(protein_muts, key=getkey)[:20], sorted(expressions, key=getkey)[:20])
 
     @cherrypy.expose
     def index(self):
