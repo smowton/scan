@@ -18,4 +18,4 @@ QUEUETMPDIR=$WORKDIR/qsg
 mkdir $JAVATMPDIR || exit 1
 mkdir $QUEUETMPDIR || exit 1
 
-cd $WORKDIR && java -Djava.io.tmpdir=$JAVATMPDIR -cp $QUEUEJAR:$CWD/queue_jobrunner:$CWD/json-org.jar org.broadinstitute.sting.queue.QCommandLine -S $CWD/queue_scripts/gatk_pipeline.scala -jobRunner Scan -run -startFromScratch -jobSGDir $QUEUETMPDIR --workdir $WORKDIR --input $INBAM --scattercount $SCATTER
+cd $WORKDIR && java -Djava.io.tmpdir=$JAVATMPDIR -cp $QUEUEJAR:$CWD/queue_jobrunner:$CWD/json-org.jar org.broadinstitute.sting.queue.QCommandLine -S $CWD/queue_scripts/gatk_pipeline.scala -jobRunner Scan -run -startFromScratch -jobSGDir $QUEUETMPDIR --workdir $WORKDIR --input $INBAM --scattercount $SCATTER --singleQueue

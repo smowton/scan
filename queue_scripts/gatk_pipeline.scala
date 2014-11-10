@@ -59,7 +59,7 @@ class VarCallingPipeline extends QScript {
 
   def pathjoin(path1 : String, path2 : String) : String = new File(new File(path1), path2).getPath
 
-  val sharedFSRoot = "/mnt/nfs/"
+  val sharedFSRoot = "/lustre/scratch/csmowton/gatk-benchmark/ref"
   val refRoot = sharedFSRoot // pathjoin(sharedFSRoot, "")
   val genome = new File(pathjoin(refRoot, "Homo_sapiens.GRCh37.56.dna.chromosomes_and_MT.fa"))
   val dbsnp = new File(pathjoin(refRoot, "dbsnp_138.hg19_with_b37_names.vcf"))
@@ -113,7 +113,7 @@ class VarCallingPipeline extends QScript {
       c.commandDirectory = workdir
 
       if(singleQueue)
-	c.jobQueue = "linux"
+	c.jobQueue = "gatk_rtc"
 
       if(c.isInstanceOf[ScatterGatherableFunction]) {
 
