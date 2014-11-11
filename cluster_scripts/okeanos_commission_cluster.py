@@ -46,8 +46,8 @@ for server in active_servers:
 
 print "Check needed flavours..."
 
-ram = 2048
-disk = 20
+ram = 8192
+disk = 80
 
 spec_to_flavour = {}
 
@@ -55,7 +55,7 @@ flavours = json.loads(subprocess.check_output(["kamaki", "flavor", "list", "-j"]
 for flavour in flavours:
 
 	name = flavour["name"]
-	if not name.endswith("drbd"):
+	if not name.endswith("ext_vlmc"):
 		continue
 
 	if name.find("C") == -1 or name.find("R") == -1 or name.find("D") == -1:
@@ -65,7 +65,7 @@ for flavour in flavours:
 	name = name.replace("C", "")
 	name = name.replace("R", "|")
 	name = name.replace("D", "|")
-	name = name.replace("drbd", "")
+	name = name.replace("ext_vlmc", "")
 	
 	(fcores, fram, fdisk) = tuple([int(x) for x in name.split("|")])
 
@@ -88,19 +88,24 @@ for tier in defn:
 	cores = tier["cores"]
 	flavour = spec_to_flavour[(cores, ram, disk)]
 
-	for i in range(count):
+	while len(machines) < count:
 
-                ip = free_ips.pop()
-                name = "Worker-%d-%d-cores" % (worker_idx, cores)
+                try:
 
-		new_server = json.loads(subprocess.check_output(["kamaki", "server", "create", "-j", "--name=" + name, 
-			"--flavor-id=%d" % flavour, "--image-id=fe31fced-a3cf-49c6-b43b-f58f5235ba45", 
-			"--network=%d,%s" % (network_id, ip), 
-			"-p", "/home/csmowton/.ssh/celarcluster.pub,/home/user/.ssh/authorized_keys,user,users,0644"]))
+                        ip = free_ips.pop()
+                        name = "Worker-%d-%d-cores" % (worker_idx, cores)
 
-		machines.append({"name": name, "id": new_server["id"], "cores": cores, "passwd": new_server["adminPass"], "ip": ip})
+                        new_server = json.loads(subprocess.check_output(["kamaki", "server", "create", "-j", "--name=" + name, 
+                                "--flavor-id=%d" % flavour, "--image-id=278b0f33-cc19-42e0-80b2-fd59358aa2a6", 
+                                "--network=%d,%s" % (network_id, ip), 
+                                "-p", "/home/csmowton/.ssh/celarcluster.pub,/home/user/.ssh/authorized_keys,user,users,0644"]))
 
-                worker_idx += 1
+                        machines.append({"name": name, "id": new_server["id"], "cores": cores, "passwd": new_server["adminPass"], "ip": ip})
+
+                        worker_idx += 1
+
+                except Exception as e:
+                        print >>sys.stderr, "Failed to recruit one machine", e
 
 json.dump(machines, machines_out)
 machines_out.close()
