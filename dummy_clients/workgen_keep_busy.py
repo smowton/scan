@@ -24,6 +24,7 @@ scan_port = 8080
 start_job_script = sys.argv[1]
 monitor_queue = sys.argv[2]
 job_root = sys.argv[3]
+temp_root = sys.argv[4]
 
 running_procs = set()
 
@@ -78,12 +79,13 @@ while True:
 	while get_utilisation() < high_target:
 
 		jobdir = os.path.join(job_root, str(next_job))
+		tempdir = os.path.join(temp_root, str(next_job))
 		print ts(), "Utilisation too low, starting job", next_job
 		next_job += 1
 		os.mkdir(jobdir)
 		logfile = os.path.join(jobdir, "queue.log")
 		with open(logfile, "w") as f:
-			cmd = [start_job_script, jobdir]
+			cmd = [start_job_script, jobdir, tempdir]
 			p = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT)
 			running_procs.add((p, tuple(cmd)))
 
