@@ -9,8 +9,13 @@ import socket
 import simplepost
 
 if len(sys.argv) < 2:
-    print >>sys.stderr, "Usage: blocking_delete.py classname"
+    print >>sys.stderr, "Usage: blocking_delete.py classname [wid]"
     sys.exit(1)
+
+if len(sys.argv) >= 3:
+    wid = int(sys.argv[2])
+else:
+    wid = None
 
 # This implements a blocking delete operation: we ask localhost:8080 to delete some worker,
 # and use our own tiny server to catch the callback when it goes away.
@@ -49,6 +54,16 @@ t.start()
 await_server.await_server(host="localhost", port=port, tries=20, delay=0.5)
 
 # Make the delete request:
-print >>sys.stderr, "Listening on port %d; requesting worker deletion from class %s" % (port, sys.argv[1])
-simplepost.post(host="localhost", port=8080, address="/delworker", params={"classname": sys.argv[1], "callbackaddress": "http://localhost:%d/callback" % port})
+
+if wid is not None:
+    desc = str(wid)
+else:
+    desc = "(any)"
+
+print >>sys.stderr, "Listening on port %d; requesting worker %s deletion from class %s" % (port, desc, sys.argv[1])
+
+post_params = {"classname": sys.argv[1], "callbackaddress": "http://localhost:%d/callback" % port}
+if wid is not None:
+    post_params["wid"] = str(wid)
+simplepost.post(host="localhost", port=8080, address="/delworker", params=post_params)
 

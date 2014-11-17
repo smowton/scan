@@ -26,6 +26,8 @@ class Worker:
                 self.hwspec_version = hwsv
                 self.wid = wid
                 self.busy = False
+                self.delete_pending = False
+                self.delete_pending_callback = None
 
         def to_dict(self):
                 return self.__dict__
@@ -347,11 +349,17 @@ class TinyScheduler:
 						rp.proc = None
 						self.pending.append(rp)
 
-                                if len(self.pendingremoves) > 0:
+                                if freed_worker.delete_pending:
+                                        print "Releasing worker", freed_worker.wid, freed_worker.address
+                                        self.release_worker(freed_worker, freed_worker.delete_pending_callback)
+                                        freed_worker = None
+
+                                elif len(self.pendingremoves) > 0:
                                         print "Releasing worker", freed_worker.wid, freed_worker.address
                                         self.release_worker(freed_worker, self.pendingremoves[0])
                                         self.pendingremoves = self.pendingremoves[1:]
                                         freed_worker = None
+
                                 elif freed_worker.hwspec_version != self.current_hwspec_version:
                                         if len(self.pendingreplacements) == 0:
                                                 raise Exception("No pending replacements, but worker %s version %d does not match current version %d?" % 
@@ -399,21 +407,43 @@ class TinyScheduler:
 			self.trystartprocs()
 			return json.dumps({"wid": newworker.wid})
 
-	def delworker(self, callbackaddress=None):
+	def delworker(self, callbackaddress=None, wid=None):
 
 		with self.lock:
 
                         if callbackaddress is not None:
                                 callbackaddress = self.parsecallbackaddress(callbackaddress)
 
+                        if wid is not None:
+                                wid = int(wid)
+
                         if len(self.workers) == 0:
                                 raise Exception("No workers in this class pool")
-                        if len(self.freeworkers) == 0:
-                                self.pendingremoves.append(callbackaddress)
+
+                        if wid is not None:
+
+                                try:
+                                        target = self.workers[wid]
+                                except KeyError:
+                                        raise Exception("No such worker %d in pool" % wid)
+                                if target.delete_pending:
+                                        raise Exception("Worker %d already pending deletion" % wid)
+
+                                if not target.busy:
+                                        self.freeworkers.remove(target)
+                                        self.release_worker(target, callbackaddress)
+                                else:
+                                        target.delete_pending = True
+                                        target.delete_pending_callback = callbackaddress
+
                         else:
-                                todel = self.freeworkers[-1]
-                                self.freeworkers.pop()
-                                self.release_worker(todel, callbackaddress)
+
+                                if len(self.freeworkers) == 0:
+                                        self.pendingremoves.append(callbackaddress)
+                                else:
+                                        todel = self.freeworkers[-1]
+                                        self.freeworkers.pop()
+                                        self.release_worker(todel, callbackaddress)
 			return json.dumps({"status": "ok"})
 
 	def modhwspec(self, addresses, newspec):
