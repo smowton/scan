@@ -10,14 +10,14 @@ apt-get -o DPkg::options::="--force-confdef" -o DPkg::options::="--force-confold
 mkdir /mnt/nfs
 
 # Wait for the scheduler to start CIFS server (nfs name is historical):
-RDY1=`ss-get scheduler.1:nfs_ready`
+RDY1=`ss-get --timeout 3600 scheduler.1:nfs_ready`
 while [ $RDY1 != "1" ]; do
     echo "Waiting for the scheduler..."
     sleep 1
-    RDY1=`ss-get scheduler.1:nfs_ready`
+    RDY1=`ss-get --timeout 3600 scheduler.1:nfs_ready`
 done
 
-mount -t cifs //`ss-get --timeout 480 scheduler.1:hostname`/share /mnt/nfs -o username=guest,password=''
+mount -t cifs //`ss-get --timeout 3600 scheduler.1:hostname`/share /mnt/nfs -o username=guest,password=''
 
 apt-get -y install default-jre python
 
@@ -33,11 +33,11 @@ git clone https://github.com/smowton/scan.git
 # Fetch JCatascopia standard probes, etc.
 # Not implemented yet
 # Wait for the scheduler:
-RDY2=`ss-get scheduler.1:sched_ready`
+RDY2=`ss-get --timeout 3600 scheduler.1:sched_ready`
 while [ $RDY2 != "1" ]; do
     echo "Waiting for the scheduler..."
     sleep 1
-    RDY2=`ss-get scheduler.1:sched_ready`
+    RDY2=`ss-get --timeout 3600 scheduler.1:sched_ready`
 done
 
 # Enable passwordless SSH access (for example?)
