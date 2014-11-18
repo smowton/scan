@@ -6,5 +6,5 @@ def templates():
                             "classname": "gatk_rtc"},
             "gatk": {"desc": "Genome Analysis (GATK)", 
                      "script": "/root/scan/dummy_clients/start_gatk_pipeline.sh %s 1 /mnt/nfs/test_workdir /mnt/nfs/Queue-3.1-smowton.jar",
-                     "classname": "queue_runner"}}
+                     "classname": "gatk_queue_runner"}}
 

@@ -48,4 +48,4 @@ done
 
 # Register to run user-submitted jobs
 SCHED_ADDRESS=`ss-get --timeout 3600 scheduler.1:sched_address`
-~/scan/register_worker.py $SCHED_ADDRESS queue_runner > ~/scan_worker_id
+~/scan/register_worker.py $SCHED_ADDRESS gatk_queue_runner > ~/scan_worker_id
