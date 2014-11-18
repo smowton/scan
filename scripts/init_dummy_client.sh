@@ -46,6 +46,13 @@ while [ $RDY2 != "1" ]; do
     RDY2=`ss-get --timeout 3600 scheduler.1:sched_ready`
 done
 
+# Enable passwordless SSH access (for example?)
+mkdir ~/.ssh
+
+# auth_keys might not end with a newline at the moment
+echo >> ~/.ssh/authorized_keys
+echo `ss-get --timeout 3600 scheduler.1:authorized_keys | base64 -d` >> ~/.ssh/authorized_keys
+
 # Register to run user-submitted jobs
 SCHED_ADDRESS=`ss-get --timeout 3600 scheduler.1:sched_address`
 ~/scan/register_worker.py $SCHED_ADDRESS gatk_queue_runner > ~/scan_worker_id
