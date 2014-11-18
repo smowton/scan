@@ -55,4 +55,5 @@ echo `ss-get --timeout 3600 scheduler.1:authorized_keys | base64 -d` >> ~/.ssh/a
 
 # Register to run user-submitted jobs
 SCHED_ADDRESS=`ss-get --timeout 3600 scheduler.1:sched_address`
+echo $SCHED_ADDRESS > ~/scan/scheduler_address
 ~/scan/register_worker.py $SCHED_ADDRESS gatk_queue_runner > ~/scan_worker_id
