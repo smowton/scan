@@ -4,6 +4,27 @@ import websupport
 import cherrypy
 import sys
 import os
+import math
+import cStringIO
+import contextlib
+
+try:
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    plt_avail = True
+except Exception as e:
+    print >>sys.stderr, "Matplotlib not available"
+    plt_avail = False
+
+def chrom_order((lhsk, lhsv), (rhsk, rhsv)):
+
+    if type(lhsk) == type(rhsk):
+        return cmp(lhsk, rhsk)
+    elif type(lhsk) == int:
+        return -1
+    else:
+        return 1
 
 class ResultViewer:
 
@@ -78,9 +99,10 @@ class ResultViewer:
 <p>Correlate %s with %s</p>
 <p>Or, find top correlates for %s</p>
 <p><input type="submit"/>
-</form></body></html>""" % (websupport.mkcombo("single_1", combo_items),
-                            websupport.mkcombo("single_2", combo_items),
-                            websupport.mkcombo("multi", combo_items))
+</form><p><a href="/results/mutation_graph">Show mutation histogram</a></p>
+</body></html>""" % (websupport.mkcombo("single_1", combo_items),
+	             websupport.mkcombo("single_2", combo_items),
+        	     websupport.mkcombo("multi", combo_items))
 
     def correlate_one(self, x, y):
 
@@ -90,7 +112,56 @@ class ResultViewer:
 
         genome_muts, protein_muts, expressions = self.getvars()
 
+    @cherrypy.expose
+    def mutation_graph(self):
+
+        if not plt_avail:
+            return "<html><body><p>Check matplotlib is installed</p></body></html>"
+
+        with self.lock:
+                
+            self.cursor.execute("select obskey from observations")
+            keys = [r[0] for r in self.cursor]
+
+        chroms = dict()
         
+        for key in keys:
+
+            bits = key.split("\t")
+            try:
+                chrom = int(bits[0])
+            except:
+                chrom = bits[0]
+            if chrom not in chroms:
+                chroms[chrom] = []
+            chroms[chrom].append(int(bits[1]))
+
+        keys = list(chroms.keys())
+        for key in keys:
+            chroms[key] = sorted(chroms[key])
+
+        gridwidth = math.ceil(math.sqrt(len(chroms)))
+        gridheight = (len(chroms) + (gridwidth - 1)) / gridwidth
+
+        plt.figure(figsize = (12, 12), dpi=72)
+
+        chroms = sorted(chroms.items(), cmp = chrom_order)
+
+        for i, (chrom, vals) in enumerate(chroms):
+            
+            plt.subplot(gridwidth, gridheight, i + 1)
+            plt.locator_params(nbins = 5)
+            plt.tick_params(labelsize = 10)
+            plt.hist(vals)
+            plt.title(chrom)
+            plt.tight_layout()
+
+        cherrypy.response.headers["Content-Type"] = "image/png"
+
+        buf = cStringIO.StringIO() 
+        with contextlib.closing(buf):
+            plt.savefig(buf, format="png")
+            return buf.getvalue()
 
     @cherrypy.expose
     def correlate(self, single_1, single_2, multi):

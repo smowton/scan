@@ -62,7 +62,7 @@ touch /mnt/nfs/test.file
 
 ss-set nfs_ready 1
 
-apt-get -y install python python-pip python-dev git
+apt-get -y install python python-pip python-dev git pkg-config libfreetype6-dev python-numpy python-matplotlib
 pip install cql cherrypy
 
 # Get the scheduler code etc:
