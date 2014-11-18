@@ -1,7 +1,7 @@
 #!/bin/bash
 
-if [ "$#" -ne 4 ]; then
-    echo "Usage: start_gatk_pipeline.sh input.bam scatter_count workdir queuejar"
+if [ "$#" -ne 5 ]; then
+    echo "Usage: start_gatk_pipeline.sh input.bam scatter_count refdir workdir queuejar"
     exit 1
 fi
 
