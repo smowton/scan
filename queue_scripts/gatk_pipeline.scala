@@ -1,5 +1,5 @@
 import org.broadinstitute.sting.queue.QScript
-import org.broadinstitute.sting.queue.function.{CommandLineFunction, JavaCommandLineFunction}
+import org.broadinstitute.sting.queue.function.{CommandLineFunction, JavaCommandLineFunction, InProcessFunction}
 import org.broadinstitute.sting.queue.function.scattergather.ScatterGatherableFunction
 import org.broadinstitute.sting.queue.extensions.gatk._
 import org.broadinstitute.sting.gatk.walkers.genotyper.GenotypeLikelihoodsCalculationModel
@@ -55,6 +55,22 @@ trait MeasureVariant extends Measure {
 
 }
 
+class HttpFetch extends InProcessFunction {
+
+  var url : String = _
+  var target : File = _
+
+  def run {
+
+    val u = new URL(url)
+    val rbc = Channels.newChannel(u.openStream())
+    val fos = new FileOutputStream(target)
+    fos.getChannel().transferFrom(rbc, 0, Long.MaxValue)
+
+  }
+
+}
+
 class VarCallingPipeline extends QScript {
 
   def pathjoin(path1 : String, path2 : String) : String = new File(new File(path1), path2).getPath
@@ -66,7 +82,7 @@ class VarCallingPipeline extends QScript {
   val indels = new File(pathjoin(refRoot, "1kg.pilot_release.merged.indels.sites.hg19.human_g1k_v37.vcf"))
 
   @Argument
-  var input : File = _
+  var input : String = _
 
   @Argument
   var workdir : String = _
@@ -136,9 +152,23 @@ class VarCallingPipeline extends QScript {
 
     }
 
+    val inputFile = 
+      if(input.startsWith("http://")) {
+
+        val target = new File(pathjoin(workdir, "in.bam"))
+        val fetch = new HttpFetch
+        fetch.url = input
+        fetch.target = target
+        add(fetch)
+        target
+
+      }
+      else
+        new File(input)
+
     val RTC = new RealignerTargetCreator with ExtraArgs with MeasureReference
     RTC.reference_sequence = genome
-    RTC.input_file = List(input)
+    RTC.input_file = List(inputFile)
     RTC.known = List(indels)
     RTC.out = realignTargets
     RTC.jobQueue = "gatk_rtc"

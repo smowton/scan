@@ -1,10 +1,10 @@
 
 def templates():
 
-    return {"echotest_linux": {"desc": "Genome Analysis (GATK)", 
-                                "script": "N=%s; echo $N > /tmp/$N",
-                                "classname": "linux"},
-            "echotest_win": {"desc": "Write some temporary files (Windows)", 
-                             "script": "N=%s; echo $N > /tmp/$N",
-                             "classname": "windows"}}
+    return {"hello_world": {"desc": "Hello World", 
+                            "script": 'echo "%s" > /tmp/hello_world',
+                            "classname": "gatk_rtc"},
+            "gatk": {"desc": "Genome Analysis (GATK)", 
+                     "script": "/root/scan/dummy_clients/start_gatk_pipeline.sh %s 1 /mnt/nfs/test_workdir /mnt/nfs/Queue-3.1-smowton.jar",
+                     "classname": "queue_runner"}}
 

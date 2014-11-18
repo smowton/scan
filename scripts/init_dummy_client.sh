@@ -46,4 +46,6 @@ while [ $RDY2 != "1" ]; do
     RDY2=`ss-get --timeout 3600 scheduler.1:sched_ready`
 done
 
-
+# Register to run user-submitted jobs
+SCHED_ADDRESS=`ss-get --timeout 3600 scheduler.1:sched_address`
+~/scan/register_worker.py $SCHED_ADDRESS queue_runner > ~/scan_worker_id
