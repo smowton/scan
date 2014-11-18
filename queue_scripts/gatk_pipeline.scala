@@ -4,7 +4,9 @@ import org.broadinstitute.sting.queue.function.scattergather.ScatterGatherableFu
 import org.broadinstitute.sting.queue.extensions.gatk._
 import org.broadinstitute.sting.gatk.walkers.genotyper.GenotypeLikelihoodsCalculationModel
 
-import java.io.File
+import java.io.{File, FileOutputStream}
+import java.net.URL
+import java.nio.channels.Channels
 
 trait ExtraArgs extends CommandLineFunction {
 
