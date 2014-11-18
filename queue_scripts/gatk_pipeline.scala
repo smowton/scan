@@ -60,14 +60,23 @@ trait MeasureVariant extends Measure {
 class HttpFetch extends InProcessFunction {
 
   var url : String = _
+
+  @Output
   var target : File = _
 
-  def run {
+  def fetch(url : String, target : File) {
 
     val u = new URL(url)
     val rbc = Channels.newChannel(u.openStream())
     val fos = new FileOutputStream(target)
     fos.getChannel().transferFrom(rbc, 0, Long.MaxValue)
+
+  }
+
+  def run {
+
+    fetch(url, target)
+    fetch(url + ".bai", new File(target.getAbsolutePath() + ".bai"))
 
   }
 
