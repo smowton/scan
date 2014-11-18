@@ -3,6 +3,7 @@ import org.broadinstitute.sting.queue.function.{CommandLineFunction, JavaCommand
 import org.broadinstitute.sting.queue.function.scattergather.ScatterGatherableFunction
 import org.broadinstitute.sting.queue.extensions.gatk._
 import org.broadinstitute.sting.gatk.walkers.genotyper.GenotypeLikelihoodsCalculationModel
+import org.broadinstitute.sting.commandline.Output
 
 import java.io.{File, FileOutputStream}
 import java.net.URL
