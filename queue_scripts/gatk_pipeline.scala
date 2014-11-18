@@ -77,17 +77,14 @@ class VarCallingPipeline extends QScript {
 
   def pathjoin(path1 : String, path2 : String) : String = new File(new File(path1), path2).getPath
 
-  val sharedFSRoot = "/lustre/scratch/csmowton/gatk-benchmark/ref"
-  val refRoot = sharedFSRoot // pathjoin(sharedFSRoot, "")
-  val genome = new File(pathjoin(refRoot, "Homo_sapiens.GRCh37.56.dna.chromosomes_and_MT.fa"))
-  val dbsnp = new File(pathjoin(refRoot, "dbsnp_138.hg19_with_b37_names.vcf"))
-  val indels = new File(pathjoin(refRoot, "1kg.pilot_release.merged.indels.sites.hg19.human_g1k_v37.vcf"))
-
   @Argument
   var input : String = _
 
   @Argument
   var workdir : String = _
+
+  @Argument
+  var refdir : String = _
 
   @Argument
   var scattercount : String = ""
@@ -111,6 +108,10 @@ class VarCallingPipeline extends QScript {
   }
 
   def script {
+
+    val genome = new File(pathjoin(refdir, "Homo_sapiens.GRCh37.56.dna.chromosomes_and_MT.fa"))
+    val dbsnp = new File(pathjoin(refdir, "dbsnp_138.hg19_with_b37_names.vcf"))
+    val indels = new File(pathjoin(refdir, "1kg.pilot_release.merged.indels.sites.hg19.human_g1k_v37.vcf"))
 
     val realignTargets = new File(pathjoin(workdir, "realign_targets.intervals"))
     val realignedBam = new File(pathjoin(workdir, "realigned.bam"))
