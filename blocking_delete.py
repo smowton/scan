@@ -50,6 +50,7 @@ def cherrypy_thread():
 
     catcher = CallbackCatcher()
     cherrypy.config.update({'log.screen': False})
+    cherrypy.server.socket_host = '0.0.0.0'
     cherrypy.server.socket_port = port
     cherrypy.quickstart(catcher)
 
