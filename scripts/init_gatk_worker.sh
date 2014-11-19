@@ -51,5 +51,6 @@ SCHED_ADDRESS=`ss-get --timeout 3600 scheduler.1:sched_address`
 # This might be tricky: discover my own class. The orchestrator knew this, and somehow needs to get that information through to the Slipstream phase.
 WORKER_CLASS=`ss-get --timeout 3600 nodename`
 
+echo $SCHED_ADDRESS > ~/scan_sched_address
 echo $WORKER_CLASS > ~/scan_worker_class
 ~/scan/register_worker.py $SCHED_ADDRESS $WORKER_CLASS > ~/scan_worker_id

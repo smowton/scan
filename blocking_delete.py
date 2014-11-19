@@ -9,11 +9,16 @@ import socket
 import simplepost
 
 if len(sys.argv) < 2:
-    print >>sys.stderr, "Usage: blocking_delete.py classname [wid]"
+    print >>sys.stderr, "Usage: blocking_delete.py classname [sched_hostname [wid]]"
     sys.exit(1)
 
 if len(sys.argv) >= 3:
-    wid = int(sys.argv[2])
+    sched_hostname = sys.argv[2]
+else:
+    sched_hostname = "localhost"
+
+if len(sys.argv) >= 4:
+    wid = int(sys.argv[3])
 else:
     wid = None
 
@@ -62,8 +67,10 @@ else:
 
 print >>sys.stderr, "Listening on port %d; requesting worker %s deletion from class %s" % (port, desc, sys.argv[1])
 
-post_params = {"classname": sys.argv[1], "callbackaddress": "http://localhost:%d/callback" % port}
+my_hostname = socket.getfqdn()
+
+post_params = {"classname": sys.argv[1], "callbackaddress": "http://%s:%d/callback" % (my_hostname, port)}
 if wid is not None:
     post_params["wid"] = str(wid)
-simplepost.post(host="localhost", port=8080, address="/delworker", params=post_params)
+simplepost.post(host=sched_hostname, port=8080, address="/delworker", params=post_params)
 
