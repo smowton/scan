@@ -1,7 +1,8 @@
 #!/bin/bash
 # Ready a worker, based on Ubuntu Server LTS / 14.04 Okeanos image:
 
-apt-get -y install cifs-utils
+apt-get -y install cifs-utils default-jre python python-dev python-pip
+pip install cherrypy
 
 #
 # update system
@@ -18,8 +19,6 @@ while [ $RDY1 != "1" ]; do
 done
 
 mount -t cifs //`ss-get --timeout 3600 scheduler.1:hostname`/share /mnt/nfs -o username=guest,password=''
-
-apt-get -y install default-jre python
 
 # Fetch the GATK:
 mkdir ~/gatk
@@ -52,4 +51,5 @@ SCHED_ADDRESS=`ss-get --timeout 3600 scheduler.1:sched_address`
 # This might be tricky: discover my own class. The orchestrator knew this, and somehow needs to get that information through to the Slipstream phase.
 WORKER_CLASS=`ss-get --timeout 3600 nodename`
 
+echo $WORKER_CLASS > ~/scan_worker_class
 ~/scan/register_worker.py $SCHED_ADDRESS $WORKER_CLASS > ~/scan_worker_id
