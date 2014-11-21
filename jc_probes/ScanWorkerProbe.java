@@ -35,7 +35,7 @@ public class ScanWorkerProbe extends Probe{
 	public ScanWorkerProbe(String name, int freq) throws Exception {
 
 		super(name, freq);
-		this.addProbeProperty(0, "busy", ProbePropertyType.BOOLEAN, "", "Is this worker running a SCAN job?");
+		this.addProbeProperty(0, "busy", ProbePropertyType.INTEGER, "", "Is this worker running a SCAN job?");
 
 		// TODO remove this hack when there's a good way to find the agent directory
 		String agentPath = "";
@@ -111,7 +111,7 @@ public class ScanWorkerProbe extends Probe{
 
 	}
 
-	private boolean getBusy() throws MalformedURLException, IOException {
+	private int getBusy() throws MalformedURLException, IOException {
 
 		InputStream is = getStream("lsworkers?classname=" + scanClass);
 		JSONTokener tok = new JSONTokener(is);
@@ -130,7 +130,7 @@ public class ScanWorkerProbe extends Probe{
 		}
 		
 		is.close();
-		return busy;
+		return busy ? 1 : 0;
 
 	}
 
