@@ -192,7 +192,7 @@ class VarCallingPipeline extends QScript {
     val IR = new IndelRealigner with MeasureInput
     IR.reference_sequence = genome
     IR.known = List(indels)
-    IR.input_file = List(input)
+    IR.input_file = List(inputFile)
     IR.targetIntervals = realignTargets
     IR.out = realignedBam
     IR.bam_compression = 0
