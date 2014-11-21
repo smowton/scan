@@ -51,7 +51,7 @@ public class ScanWorkerProbe extends Probe{
 		Properties p = new Properties();
 		FileInputStream fis = null;
 		try {
-		    fis = new FileInputStream(agentPath + File.separator + "scanprobe.properties");
+		    fis = new FileInputStream(agentPath + File.separator + "resources" + File.separator + "scanprobe.properties");
 		    p.load(fis);
 		}
 		catch(Exception e) {
