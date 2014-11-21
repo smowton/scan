@@ -4,7 +4,7 @@ ip=$(ss-get hostname)
 hostname=$(hostname) 
 echo $ip $hostname >> /etc/hosts 
 
-SERVER_IP=$(ss-get orchestrator-Flexiant:hostname) 
+SERVER_IP=$(ss-get orchestrator-okeanos:hostname) 
 CELAR_REPO=http://snf-175960.vm.okeanos.grnet.gr 
 JC_VERSION=LATEST 
 JC_ARTIFACT=JCatascopia-Agent 
