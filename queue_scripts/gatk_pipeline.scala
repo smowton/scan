@@ -58,10 +58,10 @@ trait MeasureVariant extends Measure {
 
 }
 
-trait OverrideTempDir extends JavaCommmandLineFunction {
+trait OverrideTempDir extends JavaCommandLineFunction {
 
   // TODO fix the underlying class
-  override def javaOpts = {
+  override def javaOpts : String = {
 
     val oldArgs = super.javaOpts
     val replace = "-Djava.io.tmpdir="
