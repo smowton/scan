@@ -58,6 +58,26 @@ trait MeasureVariant extends Measure {
 
 }
 
+trait OverrideTempDir extends JavaCommmandLineFunction {
+
+  // TODO fix the underlying class
+  override def javaOpts = {
+
+    val oldArgs = super.javaOpts
+    val replace = "-Djava.io.tmpdir="
+    val paramStart = oldArgs.indexOf(replace)
+
+    if(paramStart == -1)
+      return oldArgs
+
+    val paramEnd = oldArgs.indexOf("\"", paramStart + 1)
+
+    return oldArgs.substring(0, paramStart + replace.length) + jobLocalDir + oldArgs.substring(paramEnd)
+
+  }
+
+}
+
 class HttpFetch extends InProcessFunction {
 
   var url : String = _
@@ -140,6 +160,8 @@ class VarCallingPipeline extends QScript {
 
       // Don't require the CWD to be accessible remotely:
       c.commandDirectory = workdir
+      // Don't store temporary files on a network drive:
+      c.jobLocalDir = "/tmp"
 
       if(singleQueue)
 	c.jobQueue = "gatk_rtc"
@@ -179,7 +201,7 @@ class VarCallingPipeline extends QScript {
       else
         new File(input)
 
-    val RTC = new RealignerTargetCreator with ExtraArgs with MeasureReference
+    val RTC = new RealignerTargetCreator with ExtraArgs with MeasureReference with OverrideTempDir
     RTC.reference_sequence = genome
     RTC.input_file = List(inputFile)
     RTC.known = List(indels)
@@ -189,7 +211,7 @@ class VarCallingPipeline extends QScript {
     
     gatk_add(RTC, 0)
 
-    val IR = new IndelRealigner with MeasureInput
+    val IR = new IndelRealigner with MeasureInput with OverrideTempDir
     IR.reference_sequence = genome
     IR.known = List(indels)
     IR.input_file = List(inputFile)
@@ -200,7 +222,7 @@ class VarCallingPipeline extends QScript {
 
     gatk_add(IR, 1)
 
-    val BR = new BaseRecalibrator with ExtraArgs with MeasureReference
+    val BR = new BaseRecalibrator with ExtraArgs with MeasureReference with OverrideTempDir
     BR.reference_sequence = genome
     BR.input_file = List(realignedBam)
     BR.knownSites = List(indels, dbsnp)
@@ -211,7 +233,7 @@ class VarCallingPipeline extends QScript {
 
     gatk_add(BR, 2)
 
-    val PR = new PrintReads with ExtraArgs with MeasureInput
+    val PR = new PrintReads with ExtraArgs with MeasureInput with OverrideTempDir
     PR.reference_sequence = genome
     PR.input_file = List(realignedBam)
     PR.BQSR = recalData
@@ -221,7 +243,7 @@ class VarCallingPipeline extends QScript {
 
     gatk_add(PR, 3)
 
-    val UG = new UnifiedGenotyper with ExtraArgs with MeasureReference
+    val UG = new UnifiedGenotyper with ExtraArgs with MeasureReference with OverrideTempDir
     UG.reference_sequence = genome
     UG.input_file = List(recalBam)
     UG.glm = GenotypeLikelihoodsCalculationModel.Model.BOTH
@@ -234,7 +256,7 @@ class VarCallingPipeline extends QScript {
 
     gatk_add(UG, 4)
 
-    val VF = new VariantFiltration with MeasureVariant
+    val VF = new VariantFiltration with MeasureVariant with OverrideTempDir
     VF.reference_sequence = genome
     VF.variant = unfilteredCalls
     VF.out = filteredCalls
@@ -246,7 +268,7 @@ class VarCallingPipeline extends QScript {
 
     gatk_add(VF, 5)
 
-    val VE = new VariantEval with ExtraArgs with MeasureReference
+    val VE = new VariantEval with ExtraArgs with MeasureReference with OverrideTempDir
     VE.reference_sequence = genome
     VE.dbsnp = dbsnp
     VE.eval = List(filteredCalls)
