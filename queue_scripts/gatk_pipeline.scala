@@ -70,7 +70,9 @@ trait OverrideTempDir extends JavaCommandLineFunction {
     if(paramStart == -1)
       return oldArgs
 
-    val paramEnd = oldArgs.indexOf("\"", paramStart + 1)
+    val paramEnd = oldArgs.indexOf("'", paramStart + 1)
+    if(paramEnd == -1)
+      return oldArgs
 
     return oldArgs.substring(0, paramStart + replace.length) + jobLocalDir + oldArgs.substring(paramEnd)
 
