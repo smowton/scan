@@ -3,7 +3,7 @@
 #
 # update system
 #
-apt-get -o DPkg::options::="--force-confdef" -o DPkg::options::="--force-confold" -y upgrade
+#apt-get -o DPkg::options::="--force-confdef" -o DPkg::options::="--force-confold" -y upgrade
 mkdir /mnt/nfs
 
 apt-get -y install cifs-utils default-jre python default-jdk libjansi-java

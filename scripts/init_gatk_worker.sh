@@ -7,7 +7,7 @@ pip install cherrypy
 #
 # update system
 #
-apt-get -o DPkg::options::="--force-confdef" -o DPkg::options::="--force-confold" -y upgrade
+#apt-get -o DPkg::options::="--force-confdef" -o DPkg::options::="--force-confold" -y upgrade
 mkdir /mnt/nfs
 
 # Wait for the scheduler to start CIFS server (nfs name is historical):

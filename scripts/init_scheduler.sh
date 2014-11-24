@@ -37,7 +37,7 @@ cd ..
 # Set up Samba and Java
 apt-get -y install samba openjdk-7-jdk
 # Upgrade everything
-apt-get -o DPkg::options::="--force-confdef" -o DPkg::options::="--force-confold" -y upgrade
+#apt-get -o DPkg::options::="--force-confdef" -o DPkg::options::="--force-confold" -y upgrade
 
 sed 's/WORKGROUP/SCAN/' < /etc/samba/smb.conf > /tmp/smb.conf ; mv -f /tmp/smb.conf /etc/samba/smb.conf
 echo 'security = share' >> /etc/samba/smb.conf
