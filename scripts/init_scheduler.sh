@@ -106,8 +106,13 @@ echo "probes_external=ScanProbe,`pwd`/ScanProbe.jar" >> /usr/local/bin/JCatascop
 service JCatascopia-Agent stop
 service JCatascopia-Agent start
 
+# Amend the reference data if necessary
+cd ~/scan/scripts
+~/scripts/fix_dbsnp.py /mnt/nfs/dbsnp_138.hg19_with_b37_names.vcf
+
 # Start the scheduler
-~/scan/tinysched.py ~/scan/queue_scripts/gatk_pipeline_classes.py gatk_ssh_username=root &
+cd ~/scan
+~/scan/tinysched.py ~/scan/queue_scripts/gatk_pipeline_classes.py gatk_ssh_username=root gatk_init_cores=4 gatk_init_mem=8192 &
 ~/scan/await_server.py
 
 # Note that we're ready
