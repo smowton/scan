@@ -20,11 +20,6 @@ done
 
 mount -t cifs //`ss-get --timeout 3600 scheduler.1:hostname`/share /mnt/nfs -o username=guest,password=''
 
-# Fetch the GATK:
-mkdir ~/gatk
-cd ~/gatk
-wget http://cs448.user.srcf.net/GenomeAnalysisTK.jar
-
 # Fetch the SCAN ps agent:
 cd ~
 git clone https://github.com/smowton/scan.git

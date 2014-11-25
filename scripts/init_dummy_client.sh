@@ -30,14 +30,6 @@ done
 
 mount -t cifs //`ss-get --timeout 3600 scheduler.1:hostname`/share /mnt/nfs -o username=guest,password=''
 
-# Fetch Queue:
-cd /mnt/nfs
-wget http://cs448.user.srcf.net/Queue-3.1-smowton.jar
-
-# Build JobRunner
-cd ~/scan/queue_jobrunner
-scalac -cp /mnt/nfs/Queue-3.1-smowton.jar:/root/scan/json-org.jar *.scala
-
 # Wait for scheduler:
 RDY2=`ss-get --timeout 3600 scheduler.1:sched_ready`
 while [ $RDY2 != "1" ]; do
@@ -45,6 +37,10 @@ while [ $RDY2 != "1" ]; do
     sleep 1
     RDY2=`ss-get --timeout 3600 scheduler.1:sched_ready`
 done
+
+# Build JobRunner (must happen after the sched starts, as it downloads Queue)
+cd ~/scan/queue_jobrunner
+scalac -cp /mnt/nfs/Queue-3.1-smowton.jar:/root/scan/json-org.jar *.scala
 
 # Enable passwordless SSH access (for example?)
 mkdir ~/.ssh

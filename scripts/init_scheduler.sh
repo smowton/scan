@@ -106,6 +106,10 @@ echo "probes_external=ScanProbe,`pwd`/ScanProbe.jar" >> /usr/local/bin/JCatascop
 service JCatascopia-Agent stop
 service JCatascopia-Agent start
 
+# Fetch Queue:
+cd /mnt/nfs
+wget http://cs448.user.srcf.net/Queue-3.1-smowton.jar
+
 # Amend the reference data if necessary
 cd ~/scan/scripts
 ~/scripts/fix_dbsnp.py /mnt/nfs/dbsnp_138.hg19_with_b37_names.vcf
