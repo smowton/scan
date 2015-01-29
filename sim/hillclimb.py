@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
 import sim
 import sys
@@ -71,13 +71,14 @@ def wait_for_job_queue_space():
         count_queue()
         
 def params_tuple(p):
-    return (tuple(p["nmachines"]), tuple(p["machine_specs"]), tuple(p["phase_splits"]))
+    return (tuple(p["nmachines"]), p["ncores"], tuple(p["machine_specs"]), tuple(p["phase_splits"]))
 
 def params_tuple_dict(p):
     
     return {"nmachines": list(p[0]),
-            "machine_specs": list(p[1]),
-            "phase_splits": list(p[2])}
+            "ncores": p[1],
+            "machine_specs": list(p[2]),
+            "phase_splits": list(p[3])}
 
 def try_tuple(t):
 
@@ -100,10 +101,11 @@ def trydir(t):
     params = t["params"]
     if workdir is None:
         raise Exception("Must set workdir before running")
-    return os.path.join(workdir, "%s/%s/%s/%d" % ("-".join([str(x) for x in params["phase_splits"]]),
-                                                  "-".join([str(x) for x in params["machine_specs"]]),
-                                                  "-".join([str(x) for x in params["nmachines"]]),
-                                                  t["try"]))
+    return os.path.join(workdir, "%s/%s/%s/%s/%d" % ("-".join([str(x) for x in params["phase_splits"]]),
+                                                     "-".join([str(x) for x in params["machine_specs"]]),
+                                                     "-".join([str(x) for x in params["nmachines"]]),
+                                                     "-" if params["ncores"] is None else str(params["ncores"]),
+                                                     t["try"]))
 
 def tryfile(t):
     return os.path.join(trydir(t), "out.json")
@@ -138,9 +140,14 @@ def starttry(t):
     else:
         specs_param = "machine_specs=" + ",".join([str(x) for x in params["machine_specs"]])
 
+    if params["ncores"] is None:
+        cores_param = ""
+    else:
+        cores_param = "ncores=%d" % params["ncores"]
+
     splits_param = "phase_splits=" + ",".join([str(x) for x in params["phase_splits"]])
 
-    command = ["python", "/home/csmowton/tmp/scan/sim/driver.py", nmachines_param, specs_param, splits_param, "noplot", "json"]
+    command = ["python", "/home/csmowton/tmp/scan/sim/driver.py", nmachines_param, specs_param, splits_param, cores_param, "noplot", "json"]
     command = filter(lambda x: len(x) > 0, command)
 
     with open(shellfile, "w") as f:
@@ -225,14 +232,14 @@ def down_nmachines(p, idx):
     newp["nmachines"][idx] -= interval
     return newp
 
-def down_cores(p, idx):
+def down_specs(p, idx):
 
     if p["machine_specs"][idx] is None:
         return None
 
     newp = copy.deepcopy(p)
     newp["machine_specs"][idx] /= 2
-    if newp["nmachines"][idx] is not None:
+    if len(newp["nmachines"]) > idx and newp["nmachines"][idx] is not None:
         newp["nmachines"][idx] *= 2
     return newp
 
@@ -246,12 +253,19 @@ def down_split(p, idx):
         newp["nmachines"].pop()
     return newp
 
+def down_cores(p):
+    if p["ncores"] is None:
+        return None
+    newp = copy.deepcopy(p)
+    newp["ncores"] -= 5
+
 def down_from(p):
 
     # All the ways of climbing down:
     neighbours = [down_nmachines(p, idx) for idx in range(len(p["nmachines"]))] + \
-        [down_cores(p, idx) for idx in range(len(p["machine_specs"]))] + \
-        [down_split(p, idx) for idx in range(len(p["phase_splits"]))]
+        [down_specs(p, idx) for idx in range(len(p["machine_specs"]))] + \
+        [down_split(p, idx) for idx in range(len(p["phase_splits"]))] + \
+        [down_cores(p)]
 
     return filter(valid_params, neighbours)
 
@@ -270,13 +284,13 @@ def up_nmachines(p, idx):
     newp["nmachines"][idx] += interval
     return newp
 
-def up_cores(p, idx):
+def up_specs(p, idx):
 
     if p["machine_specs"][idx] == None:
         return None
     newp = copy.deepcopy(p)
     newp["machine_specs"][idx] *= 2
-    if newp["nmachines"][idx] is not None:
+    if len(newp["nmachines"]) > idx and newp["nmachines"][idx] is not None:
         newp["nmachines"][idx] /= 2
     return newp
 
@@ -296,6 +310,14 @@ def up_split(p, idx):
             newp["nmachines"].append(None)
     return newp
 
+def up_cores(p):
+    
+    if p["ncores"] is None:
+        return None
+    newp = copy.deepcopy(p)
+    newp["ncores"] += 5
+    return newp
+
 def valid_params(p):
 
     if p == None:
@@ -310,6 +332,8 @@ def valid_params(p):
     for i in p["nmachines"]:
         if i is not None and i <= 0:
             return False
+    if p["ncores"] is not None and p["ncores"] <= 0:
+        return False
 
     # Phase 7 never splits
     if p["phase_splits"][6] != 1:
@@ -338,8 +362,9 @@ def up_from(p):
 
     # All the ways of climbing up:
     neighbours = [up_nmachines(p, idx) for idx in range(len(p["nmachines"]))] + \
-        [up_cores(p, idx) for idx in range(len(p["machine_specs"]))] + \
-        [up_split(p, idx) for idx in range(len(p["phase_splits"]))]    
+        [up_specs(p, idx) for idx in range(len(p["machine_specs"]))] + \
+        [up_split(p, idx) for idx in range(len(p["phase_splits"]))] + \
+        [up_cores(p)]
 
     return filter(valid_params, neighbours)
 
@@ -421,18 +446,23 @@ if __name__ == "__main__":
     profile = sys.argv[2]
 
     if profile == "noflex-multiqueue":
-        init_params = {"nmachines": [12,12,12,12,12,4,12], "machine_specs": [1] * 7, "phase_splits": [1] * 7}
+        init_params = {"nmachines": [12,12,12,12,12,4,12], "ncores": None, "machine_specs": [1] * 7, "phase_splits": [1] * 7}
     elif profile == "noflex":
-        init_params = {"nmachines": [80], "machine_specs": [1], "phase_splits": [1] * 7}
+        init_params = {"nmachines": [80], "ncores": None, "machine_specs": [1], "phase_splits": [1] * 7}
     elif profile == "horiz":
-        init_params = {"nmachines": [None], "machine_specs": [1], "phase_splits": [1] * 7}
+        init_params = {"nmachines": [None], "ncores": None, "machine_specs": [1], "phase_splits": [1] * 7}
     elif profile == "horiz-multiqueue":
-        init_params = {"nmachines": [None] * 7, "machine_specs": [1] * 7, "phase_splits": [1] * 7}
+        init_params = {"nmachines": [None] * 7, "ncores": None, "machine_specs": [1] * 7, "phase_splits": [1] * 7}
     elif profile == "vert":
-        init_params = {"nmachines": [None], "machine_specs": [None], "phase_splits": [1] * 7}
+        init_params = {"nmachines": [None], "ncores": None, "machine_specs": [None], "phase_splits": [1] * 7}
+    elif profile == "cores":
+        init_params = {"nmachines": [None], "ncores": 90, "machine_specs": [1] * 7, "phase_splits": [1] * 7}
+        disable_splits = True
     else:
         raise Exception("Bad profile %s" % profile)
 
+    if "nosplits" in sys.argv:
+        disable_splits = True
 
     start_trial(init_params)
 

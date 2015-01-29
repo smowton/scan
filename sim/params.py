@@ -92,6 +92,25 @@ def core_tier(cores):
 
     raise Exception("Bad core_cost_tiers")
 
+def cores_hired_by_tier(cores):
+
+    cores_by_tier = []
+
+    for tier in core_cost_tiers:
+
+        if cores == 0:
+            break
+
+        if tier["cores"] is None:
+            cores_here = cores
+        else:
+            cores_here = min(cores, tier["cores"])
+
+        cores_by_tier.append(cores_here)
+        cores -= cores_here
+
+    return cores_by_tier
+
 def concurrent_cores_hired_to_cost(cores):
 
     # Model a simple situation where we own a bunch of cores (which are thus nearly free)
@@ -114,8 +133,7 @@ def concurrent_cores_hired_to_cost(cores):
 
     return cost
     
-dynamic_core_choices = [1, 2, 4]
-dynamic_core_greed_factor = 1.5
+dynamic_core_choices = [1, 2, 4, 8, 16]
 
 vm_startup_delay = 0.5
 

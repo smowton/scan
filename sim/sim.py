@@ -10,23 +10,31 @@ class SimState:
 
     average_length_memory_factor = 0.9
 
-    def __init__(self, nmachines, machine_specs, phase_splits, arrival_process, stop_time, debug, plot):
+    def __init__(self, nmachines, ncores, machine_specs, phase_splits, arrival_process, stop_time, debug, plot, greed):
 
         self.now = 0
         self.event_queue = []
-        self.machine_queues = [[] for x in machine_specs]
+        if ncores is not None:
+            self.machine_queues = [[]]
+        else:
+            self.machine_queues = [[] for x in machine_specs]
         self.machine_queue_average_lengths = [0.0 for x in machine_specs]
         self.machine_queue_average_service_intervals = [0.0 for x in machine_specs]
         self.active_machines = [[] for x in machine_specs]
         self.nmachines = nmachines
+        self.ncores = ncores
+        self.running_cores = 0
         self.machine_specs = machine_specs
         self.phase_splits = phase_splits
         self.arrival_process = arrival_process
         self.total_cost = 0
+        self.cost_by_tier = [0] * len(params.core_cost_tiers)
         self.total_reward = 0
         self.stop_time = stop_time
         self.debug = debug
         self.plot = plot
+        self.dynamic_core_greed_factor = greed
+        self.completed_job_configs = []
 
         for i, (splits, can_split) in enumerate(zip(self.phase_splits, params.can_split_phase)):
             if splits > 1 and not can_split:
@@ -47,19 +55,18 @@ class SimState:
 
         heappush(self.event_queue, (self.now + 1.0, UpdateAveragesEvent()))
 
+    def active_cores_with_jobs(self):
+        return sum([sum([m.stage.active_cores for m in active_list]) for active_list in self.active_machines])
+
     def active_cores(self):
         # If nmachines contains integers then our machines are always up.
+        # If ncores is set then the core pool is fluid, but also always up.
         if self.nmachines[0] is not None:
             return sum([x * y for (x, y) in zip(self.nmachines, self.machine_specs)])
+        elif self.ncores is not None:
+            return self.ncores
         else:
-            return sum([sum([m.stage.active_cores for m in active_list]) for active_list in self.active_machines])
-
-    def active_machine_count(self):
-
-        if self.nmachines[0] is not None:
-            return sum(self.nmachines)
-        else:
-            return sum([len(l) for l in self.active_machines])
+            return self.active_cores_with_jobs()
 
     def run(self):
 
@@ -70,6 +77,8 @@ class SimState:
             # Pay for core usage since the last event:
             elapsed = event_time - self.now
             self.total_cost += params.concurrent_cores_hired_to_cost(self.active_cores()) * elapsed
+            for i, tier_cores in enumerate(params.cores_hired_by_tier(self.active_cores())):
+                self.cost_by_tier[i] += (elapsed * tier_cores)
 
             self.now = event_time
 
@@ -119,6 +128,8 @@ class SimState:
             # Don't defer if machines are statically allocated --
             # it'll only go to waste otherwise.
             if self.nmachines[queueidx] is not None:
+                return False
+            if self.ncores is not None:
                 return False
             
             # If hiring now would draw from the lowest cost tier then just do it.
@@ -210,9 +221,6 @@ class SimState:
 
             # Select the number of cores for a *job* stage. This means that when using splits, we are choosing for *all* of them.
 
-            if params.dynamic_core_greed_factor == 1:
-                return 1
-
             # Gather stages are always single-cored.
             if split.stage.is_gather:
                 return 1
@@ -249,7 +257,7 @@ class SimState:
                 # A value of 1 produces maximum greed. A value of 10 would assume we're about to be deluged
                 # with work (rising to 10x the current load), and so picking a high core count will do a lot of harm.
 
-                predicted_splits = (active_splits * params.dynamic_core_greed_factor) + 1
+                predicted_splits = (active_splits * self.dynamic_core_greed_factor) + 1
                 new_splits = predicted_splits - active_splits
                 new_cores = new_splits * cores
                 new_cores_cost = (params.concurrent_cores_hired_to_cost(active_cores + new_cores) - params.concurrent_cores_hired_to_cost(active_cores)) * split_time
@@ -276,6 +284,10 @@ class SimState:
             # No machines available
             run_now = False
             could_run_now = False
+        elif self.ncores is not None and self.running_cores + self.machine_specs[split.stage.stage_idx] > self.ncores:
+            # No cores available
+            run_now = False
+            could_run_now = False
         elif should_defer():
             run_now = False
 
@@ -294,7 +306,10 @@ class SimState:
         if split.stage.is_gather:
             cores = 1
         else:
-            cores = self.machine_specs[queueidx]
+            if self.ncores is not None:
+                cores = self.machine_specs[split.stage.stage_idx]
+            else:
+                cores = self.machine_specs[queueidx]
         # Using dynamic vertical scaling?
         if cores is None:
             cores = split.stage.active_cores
@@ -303,16 +318,23 @@ class SimState:
 
         vm_startup_delay = params.vm_startup_delay if self.nmachines[queueidx] is None else 0
 
-        self.active_machines[queueidx].append(split)
+        if self.ncores is None:
+            self.active_machines[queueidx].append(split)
+        else:
+            self.running_cores += cores
         split.schedule_split(self, cores, vm_startup_delay)
 
         return True
 
-    def release_split_machine(self, split):
+    def release_split_resources(self, split):
 
         queue_idx = split.stage.queue_idx(self)
-        machines = self.active_machines[queue_idx]
-        machines.remove(split)
+
+        if self.ncores is not None:
+            self.running_cores -= self.machine_specs[split.stage.stage_idx]
+        else:
+            machines = self.active_machines[queue_idx]
+            machines.remove(split)
 
         self.try_run_next_split(queue_idx)
 
@@ -338,7 +360,7 @@ class SplitDoneEvent:
 
     def run(self, state):
 
-        state.release_split_machine(self.split)
+        state.release_split_resources(self.split)
         self.split.split_done(state)
 
 next_job_id = 0
@@ -404,6 +426,8 @@ class JobStage:
 
         if self.active_cores is not None and self.active_cores != cores:
             raise Exception("Should use the same number of cores per split")
+        if self.active_cores is None and self.splits_scheduled == 0:
+            self.job.stage_configs.append({"cores": cores})
         self.active_cores = cores
         self.splits_scheduled += 1
 
@@ -468,6 +492,7 @@ class Job:
         self.gather_started = False
         self.start_time = None
         self.job_id = fresh_job_id()
+        self.stage_configs = []
 
     def __str__(self):
         return "Job %d (size %g)" % (self.job_id, self.nrecords)
@@ -514,6 +539,7 @@ class Job:
         if state.debug:
             print "Job", str(self), "done; credit", reward
         state.total_reward += reward
+        state.completed_job_configs.append((self.stage_configs, reward))
 
 class ArrivalProcess:
 
