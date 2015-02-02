@@ -17,7 +17,8 @@ phase_splits = None
 debug = False
 print_json = False
 plot = True
-greed = 1.5
+vscale_algorithm = "basic"
+vscale_params = {"greed": "1", "queuefactor": "1"}
 
 for arg in sys.argv[1:]:
     if arg.startswith("nmachines="):
@@ -28,8 +29,10 @@ for arg in sys.argv[1:]:
         machine_specs = [int(x) for x in arg.split("=")[1].split(",")]
     elif arg.startswith("phase_splits="):
         phase_splits = [int(x) for x in arg.split("=")[1].split(",")]
-    elif arg.startswith("greed="):
-        greed = float(arg[len("greed="):])
+    elif arg.startswith("vscale="):
+        vscale_bits = arg[len("vscale="):].split(",")
+        vscale_algorithm = vscale_bits[0]
+        vscale_params = dict([x.split("=") for x in vscale_bits[1:]])
     elif arg == "debug":
         debug = True
     elif arg == "noplot":
@@ -68,7 +71,7 @@ if len(nmachines) != 1 and len(nmachines) != multiqueue_count:
     sys.exit(1)
 
 arrival_process = sim.ArrivalProcess(mean_arrival = 3, mean_jobs = 3, jobs_var = 2, mean_records = 5, records_var = 1)
-state = sim.SimState(nmachines = nmachines, ncores = ncores, machine_specs = machine_specs, phase_splits = phase_splits, arrival_process = arrival_process, stop_time = 10000, debug = debug, plot = plot, greed = greed)
+state = sim.SimState(nmachines = nmachines, ncores = ncores, machine_specs = machine_specs, phase_splits = phase_splits, arrival_process = arrival_process, stop_time = 10000, debug = debug, plot = plot, vscale_algorithm = vscale_algorithm, vscale_params = vscale_params)
 
 state.run()
 
@@ -98,3 +101,4 @@ else:
 
         print "%s: %d (average reward %g)" % (config, len(rewards), float(sum(rewards)) / len(rewards))
 
+        

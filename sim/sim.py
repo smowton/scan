@@ -2,6 +2,8 @@
 import params
 from heapq import heappush, heappop
 import random
+import itertools
+import numbers
 
 # If nmachines is None, use dynamic horizontal scaling
 # If machine_specs entries are None, use dynamic vertical scaling
@@ -10,7 +12,7 @@ class SimState:
 
     average_length_memory_factor = 0.9
 
-    def __init__(self, nmachines, ncores, machine_specs, phase_splits, arrival_process, stop_time, debug, plot, greed):
+    def __init__(self, nmachines, ncores, machine_specs, phase_splits, arrival_process, stop_time, debug, plot, vscale_algorithm, vscale_params):
 
         self.now = 0
         self.event_queue = []
@@ -33,7 +35,8 @@ class SimState:
         self.stop_time = stop_time
         self.debug = debug
         self.plot = plot
-        self.dynamic_core_greed_factor = greed
+        self.vscale_params = vscale_params
+        self.vscale_algorithm = vscale_algorithm
         self.completed_job_configs = []
 
         for i, (splits, can_split) in enumerate(zip(self.phase_splits, params.can_split_phase)):
@@ -43,6 +46,119 @@ class SimState:
         arrival_time, first_event = arrival_process.next()
         heappush(self.event_queue, (0, first_event))
         heappush(self.event_queue, (1.0, UpdateAveragesEvent()))
+
+        self.init_vscale_algorithm()
+
+    def init_vscale_algorithm(self):
+
+        if "greed" in self.vscale_params:
+            self.vscale_params["greed"] = float(self.vscale_params["greed"])
+        if "queuefactor" in self.vscale_params:
+            self.vscale_params["queuefactor"] = float(self.vscale_params["queuefactor"])
+        
+        if self.vscale_algorithm == "longterm" or self.vscale_algorithm == "ltadaptive":
+
+            # Find the "best" plans for executing an averagely-sized job.
+            # Select 10 representitives that will actually be considered for each job
+            # as its first stage reaches the front of the queue.
+
+            recs = self.arrival_process.mean_records
+
+            def config_stage_times(config):
+                return [params.processing_time(recs, config[i], 1, i, False) for i in range(7)]
+
+            def stage_core_time_units(config):
+                stage_times = config_stage_times(config)
+                return [stage_time * cores for (stage_time, cores) in zip(stage_times, config)]
+
+            def predict_config_reward_ratio(config):
+                stage_times = config_stage_times(config)
+                core_time_units = stage_core_time_units(config)
+                total_cost = params.core_cost_tiers[0]["cost"] * sum(core_time_units)
+                total_reward = params.reward(sum(stage_times) * self.vscale_params["queuefactor"], self.arrival_process.mean_records)
+                return float(total_reward) / total_cost
+
+            def config_average_cores(config):
+                total_time = sum(config_stage_times(config))
+                total_core_time_units = sum(stage_core_time_units(config))
+                return float(total_core_time_units / total_time)
+
+            all_config_ratios = [(config, predict_config_reward_ratio(config)) for config in itertools.product(params.dynamic_core_choices, repeat = 7)]
+            all_config_ratios = sorted(all_config_ratios, key = lambda (config, reward) : reward)
+
+            # Never consider any options that are less rewarding than running everything single-threaded
+            min_ratio = predict_config_reward_ratio([1,1,1,1,1,1,1])
+            all_config_ratios = [(config, ratio) for (config, ratio) in all_config_ratios if ratio >= min_ratio]
+
+            def make_monotonic(config_ratios):
+
+                # Discard any candidate configuration that uses more core-hours whilst delivering lesser rewards
+                kept_config_ratios = []
+                for i in range(1, len(config_ratios) + 1):
+                    (config, ratio) = config_ratios[-i]
+                    if len(kept_config_ratios) == 0:
+                        kept_config_ratios.append((config, ratio))
+                    elif sum(stage_core_time_units(config)) < sum(stage_core_time_units(kept_config_ratios[-1][0])):
+                        kept_config_ratios.append((config, ratio))
+
+                kept_config_ratios.reverse()
+                return kept_config_ratios
+
+            if self.vscale_algorithm == "longterm":
+
+                all_config_ratios = make_monotonic(all_config_ratios)
+
+                self.candidate_configs = []
+                candidate_ratios = []
+
+                if len(config_ratios) > 10:
+                    for i in range(10):
+                        idx = int(round((float(i) / 9) * (len(config_ratios) - 1)))
+                        config = config_ratios[idx][0]
+                        self.candidate_configs.append((config, config_average_cores(config)))
+                        candidate_ratios.append(config_ratios[idx][1])
+                else:
+                    self.candidate_configs = [(config, config_average_cores(config)) for (config, ratio) in config_ratios]
+                    candidate_ratios = [ratio for (config, ratio) in config_ratios]
+
+                if self.debug:
+                    print "Using longterm configs (best ratio %g, min ratio %g):" % (config_ratios[-1][1], min_ratio)
+                    for ((config, average_cores), ratio) in zip(self.candidate_configs, candidate_ratios):
+                        print config, "avg", average_cores, "ratio", ratio
+
+            else:
+                
+                # For adaptivelt operation we try to use the best possible execution plan,
+                # then fall back if current workload forces us to retreat from our full planned resource usage.
+
+                def isprefix(pref, full):
+                    return full[:len(pref)] == pref
+
+                self.ltadaptive_plans = dict()
+                
+                def populate_fallbacks_from(past_phases, parent_configs):
+
+                    pp = tuple(past_phases)
+                    possible_configs = [c for c in parent_configs if isprefix(pp, c)]
+                    self.ltadaptive_plans[pp] = possible_configs[-1]
+                    if self.debug:
+                        print " " * len(past_phases), "With prefix", past_phases, "use plan", possible_configs[-1]
+                    this_phase_cores = possible_configs[-1][len(past_phases)]
+                    
+                    for fallback_cores in params.dynamic_core_choices:
+                        if fallback_cores > this_phase_cores:
+                            # Fallback never increases the number of cores in a plan
+                            continue
+                        present_phases = past_phases + [fallback_cores]
+                        if len(present_phases) < 7:
+                            if self.debug:
+                                if fallback_cores == this_phase_cores:
+                                    print " " * len(past_phases), "Ideally use plan:"
+                                else:
+                                    print " " * len(past_phases), "If forced to fall back to", fallback_cores, "cores, use:"
+                            populate_fallbacks_from(present_phases, possible_configs)
+
+                populate_fallbacks_from([], [c for (c, r) in all_config_ratios])
 
     def update_average_lengths(self):
 
@@ -225,31 +341,48 @@ class SimState:
             if split.stage.is_gather:
                 return 1
 
-            best_cores = 1
+            if self.vscale_algorithm == "greedy":
+                return pick_dynamic_cores_greedy()
+            elif self.vscale_algorithm == "longterm":
+                return pick_dynamic_cores_longterm()
+            elif self.vscale_algorithm == "ltadaptive":
+                return pick_dynamic_cores_ltadaptive()
+            else:
+                raise Exception("Bad vscale algorithm " + self.vscale_algorithm)
+
+        def pick_dynamic_cores_greedy():
+            return pick_dynamic_cores_greedy_core(params.dynamic_core_choices)
+
+        def pick_dynamic_cores_greedy_core(choices):
+
+            best_cores = choices[0]
             best_reward = 0
 
             job = split.stage.job
 
-            active = self.active_cores()
+            active_cores = self.active_cores()
+            active_splits = sum([len(x) for x in self.active_machines])
+            predicted_splits = (active_splits * self.vscale_params["greed"]) + 1
+            new_splits = predicted_splits - active_splits
+
             time_already_passed = self.now - (job.start_time if job.start_time is not None else self.now)
             baseline_stage_time = job.estimate_stage_time(self, dynamic_cores = 1, include_gather_time = True)
-            baseline_stage_cost = (params.concurrent_cores_hired_to_cost(active + 1) - params.concurrent_cores_hired_to_cost(active)) * baseline_stage_time
+            baseline_stage_cost = (params.concurrent_cores_hired_to_cost(active_cores + 1) - params.concurrent_cores_hired_to_cost(active_cores)) * baseline_stage_time
             baseline_rest_time = job.estimate_finish_time(self, dynamic_cores_per_stage = 1, from_stage = job.current_stage + 1)
             baseline_total_time = baseline_stage_time + baseline_rest_time + time_already_passed
+            baseline_reward = job.estimate_reward(baseline_total_time)
 
-            for cores in params.dynamic_core_choices[1:]:
+            for cores in choices[1:]:
 
-                # How much reward for speeding the stage up, assuming all other stages run as baseline?
+                # How much reward for speeding the stage up, assuming all other stages run as indicated in the plan?
+                # Note the queue delay factor is considered here, but not under the cost accounting, since this is idle time.
                 stage_time = job.estimate_stage_time(self, dynamic_cores = cores, include_gather_time = True) 
-                total_time = time_already_passed + stage_time + baseline_rest_time
-                reward = job.estimate_reward(total_time) - job.estimate_reward(baseline_total_time)
+                total_time = time_already_passed + ((stage_time + baseline_rest_time) * self.vscale_params["queuefactor"])
+                reward = job.estimate_reward(total_time) - baseline_reward
 
                 # How much cost for hiring the multi-core version?
                 # Note that the gather stage is unaltered, so we consider the *split* time here.
                 split_time = split.stage.estimate_split_time(self, dynamic_cores = cores)
-                active_cores = self.active_cores()
-                active_splits = sum([len(x) for x in self.active_machines])
-                split_cost = (params.concurrent_cores_hired_to_cost(active_cores + cores) - params.concurrent_cores_hired_to_cost(active_cores)) * split_time
 
                 # How much cost because we'll force future tasks to delay or reduce their core count?
                 # The greed factor is a number indicating what multiplier on top of current utilisation we should
@@ -257,8 +390,6 @@ class SimState:
                 # A value of 1 produces maximum greed. A value of 10 would assume we're about to be deluged
                 # with work (rising to 10x the current load), and so picking a high core count will do a lot of harm.
 
-                predicted_splits = (active_splits * self.dynamic_core_greed_factor) + 1
-                new_splits = predicted_splits - active_splits
                 new_cores = new_splits * cores
                 new_cores_cost = (params.concurrent_cores_hired_to_cost(active_cores + new_cores) - params.concurrent_cores_hired_to_cost(active_cores)) * split_time
                 average_cost_per_split = float(new_cores_cost) / new_splits
@@ -276,6 +407,51 @@ class SimState:
                 print "Running with", best_cores, "cores"
 
             return best_cores
+
+        def pick_dynamic_cores_longterm():
+
+            job = split.stage.job
+
+            if job.longterm_plan is not None:
+                return job.longterm_plan[job.current_stage]
+
+            best_plan = None
+            best_reward = 0
+            active_cores = self.active_cores()
+            active_splits = sum([len(x) for x in self.active_machines])
+            predicted_splits = (active_splits * self.vscale_params["greed"]) + 1
+            new_splits = predicted_splits - active_splits
+
+            for (config, avgcores) in self.candidate_configs:
+
+                # Calculate estimated reward for running the *entire* job to plan.
+                est_time = job.estimate_finish_time(self, dynamic_cores_per_stage = config) 
+                est_reward = job.estimate_reward(est_time * self.vscale_params["queuefactor"])
+
+                # Calculate costs based on the *average* number of cores we will use during our lifetime.
+                # This may make us eager to break into expensive resources just now based on a prediction that the remainder of the job will run in similar circumstances and can fit on average.
+                # As for the greedy scheme, the greed parameter moderates this desire to some degree.
+                new_cores = new_splits * avgcores
+                new_cores_cost = (params.concurrent_cores_hired_to_cost(active_cores + new_cores) - params.concurrent_cores_hired_to_cost(active_cores)) * est_time
+                average_cost_per_split = float(new_cores_cost) / new_splits
+                
+                est_reward -= average_cost_per_split
+
+                if self.debug:
+                    print "Running with plan", config, "would yield reward", est_reward, "(average cost %g)" % average_cost_per_split
+
+                if best_plan is None or est_reward > best_reward:
+                    best_plan = config
+                    best_reward = est_reward
+
+            job.longterm_plan = best_plan
+            return best_plan[0]
+
+        def pick_dynamic_cores_ltadaptive():
+
+            job = split.stage.job
+            ideal_plan = self.ltadaptive_plans[tuple([rec["cores"] for rec in job.stage_configs])]
+            return pick_dynamic_cores_greedy_core([cores for cores in params.dynamic_core_choices if cores <= ideal_plan[job.current_stage]])
 
         run_now = True
         could_run_now = True
@@ -493,6 +669,7 @@ class Job:
         self.start_time = None
         self.job_id = fresh_job_id()
         self.stage_configs = []
+        self.longterm_plan = None
 
     def __str__(self):
         return "Job %d (size %g)" % (self.job_id, self.nrecords)
@@ -515,7 +692,10 @@ class Job:
             ret = state.machine_specs[machine_type]
             # Dynamic scaling in use?
             if ret is None:
-                ret = dynamic_cores_per_stage
+                if isinstance(dynamic_cores_per_stage, numbers.Integral):
+                    ret = dynamic_cores_per_stage
+                else:
+                    ret = dynamic_cores_per_stage[i]
             return ret
         if from_stage == -1:
             from_stage = self.current_stage
