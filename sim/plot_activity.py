@@ -47,9 +47,9 @@ def downsample(series, order):
 def downsample_list(l, order):
     return [downsample(v, order) for v in l]
 
-if len(cores_points[0]) > 100:
+if len(cores_points[0]) > 1000:
 
-    order = len(cores_points[0]) / 100
+    order = len(cores_points[0]) / 500
     print "Downsampling using groups of", order, "points"
     cores_points = downsample_list(cores_points, order)
     jobs_points = downsample_list(jobs_points, order)
@@ -74,7 +74,7 @@ else:
 
 for (core_points, job_points, times, title) in zip(cores_points, jobs_points, series_times, phase_titles):
 
-    plots.append((title, [(times, job_points)]))
+    plots.append((title, [(times, job_points), (times, core_points)]))
 
 ccgrid_graphing.stackplot.draw_stackplot(plots, xlabel = "Sim time elapsed (minutes)", ylabel = "Active jobs or cores", save_file = save_file)
 

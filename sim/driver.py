@@ -3,6 +3,7 @@
 import sim
 import sys
 import json
+import params
 
 if "dyn" in sys.argv:
     nmachines = [None] * 7
@@ -17,8 +18,13 @@ phase_splits = None
 debug = False
 print_json = False
 plot = True
-vscale_algorithm = "basic"
+hscale_algorithm = "predict"
+hscale_params = {}
+vscale_algorithm = "greedy"
 vscale_params = {"greed": "1", "queuefactor": "1"}
+job_scaling_factor = 1.0
+arrival_proc = "normal"
+arrival_proc_args = {"mean_arrival": "3.0"}
 
 for arg in sys.argv[1:]:
     if arg.startswith("nmachines="):
@@ -33,6 +39,20 @@ for arg in sys.argv[1:]:
         vscale_bits = arg[len("vscale="):].split(",")
         vscale_algorithm = vscale_bits[0]
         vscale_params = dict([x.split("=") for x in vscale_bits[1:]])
+    elif arg.startswith("jobscaling="):
+        job_scaling_factor = float(arg[len("jobscaling="):])
+    elif arg.startswith("arrivalproc="):
+        arrival_bits = arg[len("arrivalproc="):].split(",")
+        arrival_proc = arrival_bits[0]
+        arrival_proc_args = dict([x.split("=") for x in arrival_bits[1:]])
+    elif arg.startswith("startupdelay="):
+        params.vm_startup_delay = float(arg.split("=")[1])
+    elif arg.startswith("predictionerror="):
+        params.runtime_prediction_error = float(arg.split("=")[1])
+    elif arg.startswith("hscale="):
+        hscale_bits = arg[len("hscale="):].split(",")
+        hscale_algorithm = hscale_bits[0]
+        hscale_params = dict([x.split("=") for x in hscale_bits[1:]])        
     elif arg == "debug":
         debug = True
     elif arg == "noplot":
@@ -70,35 +90,63 @@ if len(nmachines) != 1 and len(nmachines) != multiqueue_count:
     print >>sys.stderr, "Must specify either 1 or", multiqueue_count, " [or", "7" if multiqueue_count == 8 else "8", " depending on whether work splitting is in use] machine classes"
     sys.exit(1)
 
-arrival_process = sim.ArrivalProcess(mean_arrival = 3, mean_jobs = 3, jobs_var = 2, mean_records = 5, records_var = 1)
-state = sim.SimState(nmachines = nmachines, ncores = ncores, machine_specs = machine_specs, phase_splits = phase_splits, arrival_process = arrival_process, stop_time = 10000, debug = debug, plot = plot, vscale_algorithm = vscale_algorithm, vscale_params = vscale_params)
+for i in range(len(params.thread_factor_params)):
+    params.thread_factor_params[i] *= job_scaling_factor
+    if params.thread_factor_params[i] > 1:
+        params.thread_factor_params[i] = 1
+
+if arrival_proc == "normal":
+    arrival_process = sim.NormalArrivalProcess(**arrival_proc_args)
+elif arrival_proc == "weekend":
+    arrival_process = sim.WeekendArrivalProcess(**arrival_proc_args)
+state = sim.SimState(nmachines = nmachines, ncores = ncores, machine_specs = machine_specs, phase_splits = phase_splits, arrival_process = arrival_process, stop_time = 10000, debug = debug, plot = plot, hscale_algorithm = hscale_algorithm, hscale_params = hscale_params, vscale_algorithm = vscale_algorithm, vscale_params = vscale_params)
 
 state.run()
 
+avg_profit = (state.total_reward - state.total_cost) / len(state.completed_jobs)
+
+avg_queue_time = sum([j.total_queue_delay for j in state.completed_jobs])
+avg_queue_time /= len(state.completed_jobs)
+
+total_run_time = sum([(j.actual_finish_time - j.start_time) for j in state.completed_jobs])
+avg_run_time = total_run_time / len(state.completed_jobs)
+
+queue_pc = ((avg_queue_time * 100) / avg_run_time)
+
+configs = dict()
+
+for job in state.completed_jobs:
+    config = job.stage_configs
+    key = tuple([v["cores"] for v in config])
+    if key not in configs:
+        configs[key] = []
+    configs[key].append(job)
+
+top_configs = []
+
+for config, jobs in sorted(configs.iteritems(), key = lambda k : len(k[1]), reverse = True)[:10]:
+
+    this_config_reward = sum([job.reward for job in jobs])
+    this_config_cost = sum([job.cost for job in jobs])
+    top_configs.append({"config": config, "njobs": len(jobs), "avgprofit": (this_config_reward - this_config_cost) / len(jobs)})
+
 if print_json:
 
-    print json.dumps({"reward": state.total_reward, "cost": state.total_cost, "ratio": float(state.total_reward) / state.total_cost})
+    print json.dumps({"reward": state.total_reward, "cost": state.total_cost, "avgprofit": avg_profit, "avgqueuetime": avg_queue_time, "avgruntime": avg_run_time, "queuepc": queue_pc, "top_configs": top_configs})
 
 else:
 
     print >>sys.stderr, "Total reward", state.total_reward
     print >>sys.stderr, "Total cost", state.total_cost
-    print >>sys.stderr, "Reward per unit cost", float(state.total_reward) / state.total_cost
+    print >>sys.stderr, "Average profit", avg_profit
 
-    for tier, cost in enumerate(state.cost_by_tier):
-        print >>sys.stderr, "Cost at tier %d: %d" % (tier + 1, cost)
+    for tier, (tus, costpertu) in enumerate(zip(state.cost_by_tier, [tier["cost"] for tier in params.core_cost_tiers])):
+        print >>sys.stderr, "Cost at tier %d: %d" % (tier + 1, tus * costpertu)
 
-    configs = dict()
+    print >>sys.stderr, "Average job spent", avg_queue_time, "waiting in queues, %g%% of total runtime" % queue_pc
 
-    for config, reward in state.completed_job_configs:
-        key = tuple([v["cores"] for v in config])
-        if key not in configs:
-            configs[key] = []
-        configs[key].append(reward)
+    print >>sys.stderr, "Most common configs used (total jobs = %d):" % len(state.completed_jobs)
+    for config in top_configs:
 
-    print >>sys.stderr, "Most common configs used (total jobs = %d):" % len(state.completed_job_configs)
-    for config, rewards in sorted(configs.iteritems(), key = lambda k : len(k[1]), reverse = True)[:10]:
+        print >>sys.stderr, "%s: %d (average profit %g)" % (config["config"], config["njobs"], config["avgprofit"])
 
-        print "%s: %d (average reward %g)" % (config, len(rewards), float(sum(rewards)) / len(rewards))
-
-        

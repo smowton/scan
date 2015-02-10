@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 matplotlib.rcParams['font.size'] = 8
 
-series_colours = ['k', '0.25']
+series_colours = ['k', 'red']
 series_markers = [' ', '|']
 
 def draw_stackplot(plots, xlabel, ylabel, save_file = None):

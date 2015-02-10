@@ -12,7 +12,7 @@ class SimState:
 
     average_length_memory_factor = 0.9
 
-    def __init__(self, nmachines, ncores, machine_specs, phase_splits, arrival_process, stop_time, debug, plot, vscale_algorithm, vscale_params):
+    def __init__(self, nmachines, ncores, machine_specs, phase_splits, arrival_process, stop_time, debug, plot, hscale_algorithm, hscale_params, vscale_algorithm, vscale_params):
 
         self.now = 0
         self.event_queue = []
@@ -35,15 +35,17 @@ class SimState:
         self.stop_time = stop_time
         self.debug = debug
         self.plot = plot
+        self.hscale_algorithm = hscale_algorithm
+        self.hscale_params = hscale_params
         self.vscale_params = vscale_params
         self.vscale_algorithm = vscale_algorithm
-        self.completed_job_configs = []
+        self.completed_jobs = []
 
         for i, (splits, can_split) in enumerate(zip(self.phase_splits, params.can_split_phase)):
             if splits > 1 and not can_split:
                 raise Exception("Not allowed to split phase %d" % i)
 
-        arrival_time, first_event = arrival_process.next()
+        arrival_time, first_event = arrival_process.next(self)
         heappush(self.event_queue, (0, first_event))
         heappush(self.event_queue, (1.0, UpdateAveragesEvent()))
 
@@ -55,6 +57,8 @@ class SimState:
             self.vscale_params["greed"] = float(self.vscale_params["greed"])
         if "queuefactor" in self.vscale_params:
             self.vscale_params["queuefactor"] = float(self.vscale_params["queuefactor"])
+        if "plan" in self.vscale_params:
+            self.vscale_params["plan"] = [int(bit) for bit in self.vscale_params["plan"].split(":")]
         
         if self.vscale_algorithm == "longterm" or self.vscale_algorithm == "ltadaptive":
 
@@ -111,18 +115,18 @@ class SimState:
                 self.candidate_configs = []
                 candidate_ratios = []
 
-                if len(config_ratios) > 10:
+                if len(all_config_ratios) > 10:
                     for i in range(10):
-                        idx = int(round((float(i) / 9) * (len(config_ratios) - 1)))
-                        config = config_ratios[idx][0]
+                        idx = int(round((float(i) / 9) * (len(all_config_ratios) - 1)))
+                        config = all_config_ratios[idx][0]
                         self.candidate_configs.append((config, config_average_cores(config)))
-                        candidate_ratios.append(config_ratios[idx][1])
+                        candidate_ratios.append(all_config_ratios[idx][1])
                 else:
-                    self.candidate_configs = [(config, config_average_cores(config)) for (config, ratio) in config_ratios]
-                    candidate_ratios = [ratio for (config, ratio) in config_ratios]
+                    self.candidate_configs = [(config, config_average_cores(config)) for (config, ratio) in all_config_ratios]
+                    candidate_ratios = [ratio for (config, ratio) in all_config_ratios]
 
                 if self.debug:
-                    print "Using longterm configs (best ratio %g, min ratio %g):" % (config_ratios[-1][1], min_ratio)
+                    print "Using longterm configs (best ratio %g, min ratio %g):" % (all_config_ratios[-1][1], min_ratio)
                     for ((config, average_cores), ratio) in zip(self.candidate_configs, candidate_ratios):
                         print config, "avg", average_cores, "ratio", ratio
 
@@ -192,7 +196,17 @@ class SimState:
 
             # Pay for core usage since the last event:
             elapsed = event_time - self.now
-            self.total_cost += params.concurrent_cores_hired_to_cost(self.active_cores()) * elapsed
+            active_cores = self.active_cores()
+            new_cost = params.concurrent_cores_hired_to_cost(active_cores) * elapsed
+            self.total_cost += new_cost
+            if active_cores != 0:
+                cost_per_core = new_cost / active_cores
+                for l in self.active_machines:
+                    for split in l:
+                        stage = split.stage
+                        job = stage.job
+                        job.cost += cost_per_core * stage.active_cores
+
             for i, tier_cores in enumerate(params.cores_hired_by_tier(self.active_cores())):
                 self.cost_by_tier[i] += (elapsed * tier_cores)
 
@@ -218,7 +232,7 @@ class SimState:
         queue = self.machine_queues[queueidx]
 
         for i in range(nsplits):
-            split = JobSplit(stage, i)
+            split = JobSplit(stage, i, self.now)
             queue.append(split)
 
         while self.try_run_next_split(queueidx):
@@ -233,7 +247,7 @@ class SimState:
 
         split = queue[0]
 
-        def should_defer():
+        def should_defer(this_stage_cores):
 
             # Decide whether to defer a single split of a job. Thus all costs are for a single split, not the whole job.
 
@@ -247,7 +261,7 @@ class SimState:
                 return False
             if self.ncores is not None:
                 return False
-            
+
             # If hiring now would draw from the lowest cost tier then just do it.
             active = self.active_cores()
             if split.stage.is_gather:
@@ -257,13 +271,18 @@ class SimState:
             if cores_per_machine is None:
                 cores_per_machine = split.stage.active_cores
             if cores_per_machine is None:
-                cores_per_machine = 1
+                cores_per_machine = this_stage_cores
             hire_now_tier = params.core_tier(active + cores_per_machine)
             if hire_now_tier == 0:
                 return False
 
+            if self.hscale_algorithm == "always":
+                return False
+            elif self.hscale_algorithm == "never":
+                return True
+
             # Would we save cost by waiting to drop a cost tier instead of hiring now?
-            this_split_time = split.stage.estimate_split_time(self, dynamic_cores = 1)
+            this_split_time = split.stage.estimate_split_time(self, dynamic_cores = this_stage_cores)
             cores_to_drop_tier = (active + cores_per_machine) - sum([x["cores"] for x in params.core_cost_tiers[:hire_now_tier]])
             saving = params.core_cost_tiers[hire_now_tier]["cost"] - params.core_cost_tiers[hire_now_tier - 1]["cost"]
             saving *= this_split_time
@@ -272,15 +291,16 @@ class SimState:
             # Firstly how long a delay are we proposing? This is the time until enough active machines finish:
             next_finish_splits = sorted(self.active_machines[queueidx], key = lambda x: x.split_finish_time, reverse = True)
 
-            i = 0
+            i = 1
             defer_delay = None
             while cores_to_drop_tier >= 0 and i <= len(next_finish_splits):
                 cores_to_drop_tier -= next_finish_splits[-i].stage.active_cores
                 defer_delay = next_finish_splits[-i].split_finish_time - self.now
+                i += 1
 
             if cores_to_drop_tier > 0:
                 splits_to_drop_tier = (cores_to_drop_tier + (cores_per_machine - 1)) / cores_per_machine
-                defer_delay += (this_split_time * (float(jobs_to_drop_tier) / len(self.active_machines[queueidx])))
+                defer_delay += (this_split_time * (float(splits_to_drop_tier) / len(self.active_machines[queueidx])))
 
             def job_defer_penalty(qjob, start_delay, defer_delay):
 
@@ -295,7 +315,9 @@ class SimState:
                 # Since this is a cost knee point, assume we would use one core if given the choice.
                 # If we are using splits then part of the job may already be running; however
                 # given this piece is still in the queue it will take at least one split duration to finish.
-                total_duration += qjob.estimate_finish_time(self, dynamic_cores_per_stage = 1)                
+
+                qjob_plan = guess_job_plan(qjob)
+                total_duration += qjob.estimate_finish_time(self, dynamic_cores_per_stage = qjob_plan)
                 
                 reward_start_now = qjob.estimate_reward(total_duration)
                 reward_start_deferred = qjob.estimate_reward(total_duration + defer_delay)
@@ -323,7 +345,7 @@ class SimState:
                 else:
                     # Estimate: on average splits further back in the queue will get to start on average
                     # every stage_time / n_active_splits seconds.
-                    next_start_time += (qsplit.stage.estimate_split_time(self, dynamic_cores = 1) / len(self.active_machines[queueidx]))
+                    next_start_time += (qsplit.stage.estimate_split_time(self, dynamic_cores = guess_job_plan(qjob)) / len(self.active_machines[queueidx]))
                 
             balance = saving - total_defer_penalty
 
@@ -347,13 +369,15 @@ class SimState:
                 return pick_dynamic_cores_longterm()
             elif self.vscale_algorithm == "ltadaptive":
                 return pick_dynamic_cores_ltadaptive()
+            elif self.vscale_algorithm == "constant":
+                return self.vscale_params["plan"][split.stage.job.current_stage]
             else:
                 raise Exception("Bad vscale algorithm " + self.vscale_algorithm)
 
         def pick_dynamic_cores_greedy():
             return pick_dynamic_cores_greedy_core(params.dynamic_core_choices)
 
-        def pick_dynamic_cores_greedy_core(choices):
+        def pick_dynamic_cores_greedy_core(choices, future_dynamic_cores_fn = None):
 
             best_cores = choices[0]
             best_reward = 0
@@ -377,7 +401,11 @@ class SimState:
                 # How much reward for speeding the stage up, assuming all other stages run as indicated in the plan?
                 # Note the queue delay factor is considered here, but not under the cost accounting, since this is idle time.
                 stage_time = job.estimate_stage_time(self, dynamic_cores = cores, include_gather_time = True) 
-                total_time = time_already_passed + ((stage_time + baseline_rest_time) * self.vscale_params["queuefactor"])
+                if future_dynamic_cores_fn is None:
+                    rest_time = baseline_rest_time
+                else:
+                    rest_time = job.estimate_finish_time(self, dynamic_cores_per_stage = future_dynamic_cores_fn(cores), from_stage = job.current_stage + 1)
+                total_time = time_already_passed + ((stage_time + rest_time) * self.vscale_params["queuefactor"])
                 reward = job.estimate_reward(total_time) - baseline_reward
 
                 # How much cost for hiring the multi-core version?
@@ -411,8 +439,10 @@ class SimState:
         def pick_dynamic_cores_longterm():
 
             job = split.stage.job
-
-            if job.longterm_plan is not None:
+            
+            # Check for stage > 0 to allow this function to be used for tentative guesses
+            # as well as the final decision of what to run.
+            if job.longterm_plan is not None and job.current_stage > 0:
                 return job.longterm_plan[job.current_stage]
 
             best_plan = None
@@ -450,8 +480,30 @@ class SimState:
         def pick_dynamic_cores_ltadaptive():
 
             job = split.stage.job
-            ideal_plan = self.ltadaptive_plans[tuple([rec["cores"] for rec in job.stage_configs])]
-            return pick_dynamic_cores_greedy_core([cores for cores in params.dynamic_core_choices if cores <= ideal_plan[job.current_stage]])
+            configs_so_far = tuple([rec["cores"] for rec in job.stage_configs])
+            ideal_plan = self.ltadaptive_plans[configs_so_far]
+            use_ideal_cores = lambda this_stage_cores: self.ltadaptive_plans[configs_so_far + (this_stage_cores,)]
+            return pick_dynamic_cores_greedy_core([cores for cores in params.dynamic_core_choices if cores <= ideal_plan[job.current_stage]], future_dynamic_cores_fn = use_ideal_cores)
+
+        def guess_job_plan(job):
+
+            if self.vscale_algorithm == "greedy":
+                plan = [c["cores"] for c in job.stage_configs]
+                plan.extend([1] * (7 - len(plan)))
+            elif self.vscale_algorithm == "longterm":
+                if job.longterm_plan is None:
+                    plan = self.candidate_configs[0][0]
+                else:
+                    plan = job.longterm_plan
+            elif self.vscale_algorithm == "ltadaptive":
+                history = [c["cores"] for c in job.stage_configs]
+                plan = self.ltadaptive_plans[tuple(history)]
+            elif self.vscale_algorithm == "constant":
+                plan = self.vscale_params["plan"]
+            else:
+                plan = None
+
+            return plan
 
         run_now = True
         could_run_now = True
@@ -464,7 +516,23 @@ class SimState:
             # No cores available
             run_now = False
             could_run_now = False
-        elif should_defer():
+
+        if could_run_now:
+
+            if split.stage.is_gather:
+                cores = 1
+            else:
+                if self.ncores is not None:
+                    cores = self.machine_specs[split.stage.stage_idx]
+                else:
+                    cores = self.machine_specs[queueidx]
+            # Using dynamic vertical scaling?
+            if cores is None:
+                cores = split.stage.active_cores
+            if cores is None:
+                cores = pick_dynamic_cores()            
+
+        if should_defer(cores):
             run_now = False
 
         if not run_now:
@@ -478,19 +546,6 @@ class SimState:
         # Do it now. Remove from queue and determine the next event for this job.
 
         queue.pop(0)
-
-        if split.stage.is_gather:
-            cores = 1
-        else:
-            if self.ncores is not None:
-                cores = self.machine_specs[split.stage.stage_idx]
-            else:
-                cores = self.machine_specs[queueidx]
-        # Using dynamic vertical scaling?
-        if cores is None:
-            cores = split.stage.active_cores
-        if cores is None:
-            cores = pick_dynamic_cores()
 
         vm_startup_delay = params.vm_startup_delay if self.nmachines[queueidx] is None else 0
 
@@ -516,7 +571,7 @@ class SimState:
 
     def queue_next_arrival(self):
         
-        arrival_time, event = self.arrival_process.next()
+        arrival_time, event = self.arrival_process.next(self)
         heappush(self.event_queue, (self.now + arrival_time, event))
 
 class ArrivalEvent:
@@ -549,12 +604,13 @@ def fresh_job_id():
 # JobSplit keeps track of state that only applies to one split
 class JobSplit:
 
-    def __init__(self, stage, split_idx):
+    def __init__(self, stage, split_idx, created_time):
 
         self.stage = stage
         self.split_start_time = None
         self.split_finish_time = None
         self.split_idx = split_idx
+        self.created_time = created_time
 
     def __str__(self):
         
@@ -579,6 +635,9 @@ class JobSplit:
         real_runtime = params.predicted_to_real_time(predicted_runtime)
         split_end_event = SplitDoneEvent(self)
         heappush(state.event_queue, (state.now + real_runtime, split_end_event))
+
+        queue_delay = state.now - self.created_time
+        self.stage.job.total_queue_delay += queue_delay
         
     def split_done(self, state):
 
@@ -670,6 +729,8 @@ class Job:
         self.job_id = fresh_job_id()
         self.stage_configs = []
         self.longterm_plan = None
+        self.total_queue_delay = 0.0
+        self.cost = 0.0
 
     def __str__(self):
         return "Job %d (size %g)" % (self.job_id, self.nrecords)
@@ -715,25 +776,29 @@ class Job:
         return params.reward(running_time, self.nrecords)
 
     def credit_reward(self, state):
-        reward = params.reward(state.now - self.start_time, self.nrecords)
+        self.reward = params.reward(state.now - self.start_time, self.nrecords)
         if state.debug:
-            print "Job", str(self), "done; credit", reward
-        state.total_reward += reward
-        state.completed_job_configs.append((self.stage_configs, reward))
+            print "Job", str(self), "done; credit", self.reward
+        state.total_reward += self.reward
+        self.actual_finish_time = state.now
+        state.completed_jobs.append(self)
 
-class ArrivalProcess:
+class NormalArrivalProcess:
 
-    def __init__(self, mean_arrival, mean_jobs, jobs_var, mean_records, records_var):
-        self.mean_arrival = mean_arrival
-        self.arrival_lambda = 1.0 / mean_arrival
-        self.mean_jobs = mean_jobs
-        self.jobs_var = jobs_var
-        self.mean_records = mean_records
-        self.records_var = records_var
+    def __init__(self, mean_arrival = "3.0", mean_jobs = "3", jobs_var = "2", mean_records = "5", records_var = "1"):
+        self.mean_arrival = float(mean_arrival)
+        self.arrival_lambda = 1.0 / self.mean_arrival
+        self.mean_jobs = float(mean_jobs)
+        self.jobs_var = float(jobs_var)
+        self.mean_records = float(mean_records)
+        self.records_var = float(records_var)
 
-    def next(self):
+    def get_arrival_lambda(self, state):
+        return self.arrival_lambda
+
+    def next(self, state):
         
-        arrival_interval = random.expovariate(self.arrival_lambda)
+        arrival_interval = random.expovariate(self.get_arrival_lambda(state))
         if arrival_interval == float("inf") or arrival_interval <= 0:
             arrival_interval = self.mean_arrival
 
@@ -746,6 +811,21 @@ class ArrivalProcess:
             jobs.append(Job(random.normalvariate(self.mean_records, self.records_var)))
 
         return (arrival_interval, ArrivalEvent(jobs))
+
+class WeekendArrivalProcess(NormalArrivalProcess):
+    
+    def __init__(self, period = "1000", weekdaymean = "2.5", weekendmean = "7.5", **kwargs):
+        NormalArrivalProcess.__init__(self, **kwargs)
+        self.period = int(period)
+        self.weekday_lambda = 1.0 / float(weekdaymean)
+        self.weekend_lambda = 1.0 / float(weekendmean)
+        
+    def get_arrival_lambda(self, state):
+        interval = int(state.now) / self.period
+        if interval % 2 == 1:
+            return self.weekend_lambda
+        else:
+            return self.weekday_lambda
 
 class UpdateAveragesEvent:
 

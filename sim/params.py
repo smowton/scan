@@ -8,11 +8,6 @@ import random
 # When threading or splitting are used, the record count still represents the entire job.
 # There are basically two classes of task: the largely input-dependent, and the largely input-independent.
 
-def correct_thread_efficiency(thread_count):
-
-    # Complete guess, to be replaced by profiled data:
-    return float(thread_count) * (1 - (float(thread_count) / 48))
-
 def processing_time(record_count, thread_count, split_count, phase_index, include_gather):
     
     params = stage_to_time_params[phase_index]
@@ -21,23 +16,23 @@ def processing_time(record_count, thread_count, split_count, phase_index, includ
         ret = 0.0
 
     ideal_thread_factor = float(1) / thread_count
-    thread_constant_part = thread_factor_params[phase_index][1]
+    thread_constant_part = thread_factor_params[phase_index]
 
     ret *= (thread_constant_part + ((1 - thread_constant_part) * ideal_thread_factor))
 
-    if include_gather:
+    if include_gather and split_count > 1:
         ret += gather_time(record_count, phase_index)
 
     return ret
 
 thread_factor_params = [
-    (0.886964886965, 0.111111111111),
-    (-0.0106345267636, 0.981389578164),
-    (0.687110446273, 0.312390924956),
-    (0.780952380952, 0.213333333333),
-    (0.905907380134, 0.0904925544101),
-    (0.238095238095, 0.75),
-    (0.0265780730897, 0.976744186047)
+    0.111111111111,
+    0.981389578164,
+    0.312390924956,
+    0.213333333333,
+    0.0904925544101,
+    0.75,
+    0.976744186047
 ]
 
 stage_to_time_params = [
@@ -67,19 +62,14 @@ def gather_time(record_count, phase_index):
 
 def reward(total_pipeline_latency, record_count):
 
-    # For now let's suppose we don't care about record count:
-    # the reward structure is 1000 points for finishing in time, 
-    # 500 for being a little late, 1500 for being quite early, 0 otherwise.
+    standard_reward = 1800
+    job_size_factor = float(record_count) / 5
+    standard_reward *= job_size_factor
 
-    if total_pipeline_latency < 60:
-        return 1500
-    elif total_pipeline_latency < 100:
-        score = float(100 - total_pipeline_latency) / 40
-        return 500 + (score * 1000)
-    else:
-        return 0
+    score = float(120 - total_pipeline_latency) / 120
+    return score * standard_reward
 
-core_cost_tiers = [{"cores": 100, "cost": 5}, {"cores": None, "cost": 25}]
+core_cost_tiers = [{"cores": 100, "cost": 5}, {"cores": None, "cost": 50}]
 
 def core_tier(cores):
 
@@ -137,6 +127,9 @@ dynamic_core_choices = [1, 2, 4, 8, 16]
 
 vm_startup_delay = 0.5
 
+runtime_prediction_error = 0.05
+
 def predicted_to_real_time(predicted_time):
 
-    return predicted_time * random.normalvariate(1, 0.05)
+    pred = predicted_time * random.normalvariate(1, runtime_prediction_error)
+    return min(max(predicted_time * 0.1, pred), predicted_time * 1.9)
