@@ -132,4 +132,5 @@ runtime_prediction_error = 0.0
 def predicted_to_real_time(predicted_time):
 
     pred = predicted_time * random.normalvariate(1, runtime_prediction_error)
-    return min(max(predicted_time * 0.1, pred), predicted_time * 1.9)
+    realtime = min(max(predicted_time * 0.1, pred), predicted_time * 1.9)
+    return realtime

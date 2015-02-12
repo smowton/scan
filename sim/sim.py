@@ -287,15 +287,46 @@ class SimState:
             saving = params.core_cost_tiers[hire_now_tier]["cost"] - params.core_cost_tiers[hire_now_tier - 1]["cost"]
             saving *= this_split_time
 
-            # What would it cost to extend that time by the expected queueing time, vs. starting it now?
+            # Calculate new predicted finish times for each task that is currently running, based
+            # on the prediction originally entered when they started and the current time.
+            def predict_finish_time(predsplit):
+                if self.hscale_algorithm == "predict":
+                    return max(predsplit.split_finish_time, self.now)
+                elif self.hscale_algorithm == "preduniform":
+                    errorfact = float(self.hscale_params["maxerror"])
+                    expected_runtime = predsplit.split_finish_time - predsplit.split_start_time
+                    min_runtime = (1 - errorfact) * expected_runtime
+                    max_runtime = (1 + errorfact) * expected_runtime
+                    min_finish_time = predsplit.split_start_time + min_runtime
+                    max_finish_time = predsplit.split_start_time + max_runtime
+                    if self.now <= min_finish_time:
+                        # Continue to expect mean:
+                        return predsplit.split_finish_time
+                    elif self.now >= max_finish_time:
+                        # Surely will finish any minute now...
+                        return self.now
+                    else:
+                        # Average of remaining uniform distribution:
+                        return (max_finish_time + self.now) / 2
+                else:
+                    raise Exception("Bad hscale algorithm: " + self.hscale_algorithm)
+
+            split_finish_times = [(s, predict_finish_time(s)) for s in self.active_machines[queueidx]]
+            next_finish_splits = sorted(split_finish_times, key = lambda x: x[1], reverse = True)
+
+            # What would it cost to extend each queued task's start time by the expected queueing time, vs. starting it now?
             # Firstly how long a delay are we proposing? This is the time until enough active machines finish:
-            next_finish_splits = sorted(self.active_machines[queueidx], key = lambda x: x.split_finish_time, reverse = True)
+           
+            if self.debug:
+                print "Next finish splits at %g:" % self.now
+                for (s, pred_time) in next_finish_splits:
+                    print "Orginal prediction %g, now %g" % (s.split_finish_time, pred_time)
 
             i = 1
             defer_delay = None
             while cores_to_drop_tier >= 0 and i <= len(next_finish_splits):
-                cores_to_drop_tier -= next_finish_splits[-i].stage.active_cores
-                defer_delay = next_finish_splits[-i].split_finish_time - self.now
+                cores_to_drop_tier -= next_finish_splits[-i][0].stage.active_cores
+                defer_delay = next_finish_splits[-i][1] - self.now
                 i += 1
 
             if cores_to_drop_tier > 0:
@@ -340,8 +371,12 @@ class SimState:
                     total_defer_penalty += job_defer_penalty(qjob, next_start_time - self.now, defer_delay)
                 unique_jobs.add(qjob)
 
+                # Dubiousness here: we're assuming roughly one split in, one split out -- but we could have e.g.
+                # a 4-core split finishing permitting a bunch of 1-core queued jobs to proceed, or vice versa.
+                # We can't do this exactly right since the queued jobs will only pick their true core count
+                # when they are actually started.
                 if len(next_finish_splits) != 0:
-                    next_start_time = next_finish_splits.pop().split_finish_time
+                    next_start_time = max(next_finish_splits.pop()[1], self.now)
                 else:
                     # Estimate: on average splits further back in the queue will get to start on average
                     # every stage_time / n_active_splits seconds.
