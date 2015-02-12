@@ -125,9 +125,9 @@ def concurrent_cores_hired_to_cost(cores):
     
 dynamic_core_choices = [1, 2, 4, 8, 16]
 
-vm_startup_delay = 0.5
+vm_startup_delay = 0.0
 
-runtime_prediction_error = 0.05
+runtime_prediction_error = 0.0
 
 def predicted_to_real_time(predicted_time):
 

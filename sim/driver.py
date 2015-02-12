@@ -53,6 +53,16 @@ for arg in sys.argv[1:]:
         hscale_bits = arg[len("hscale="):].split(",")
         hscale_algorithm = hscale_bits[0]
         hscale_params = dict([x.split("=") for x in hscale_bits[1:]])        
+    elif arg.startswith("tier_costs="):
+        tier_bits = arg[len("tier_costs="):].split(",")
+        def parse_cores_str(cores):
+            if cores == "*":
+                return None
+            else:
+                return int(cores)
+        split_tiers = [bit.split(":") for bit in tier_bits]
+        params.core_cost_tiers = [{"cores": parse_cores_str(cores), "cost": int(cost)} for (cores, cost) in split_tiers]
+            
     elif arg == "debug":
         debug = True
     elif arg == "noplot":
