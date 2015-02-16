@@ -62,7 +62,9 @@ for arg in sys.argv[1:]:
                 return int(cores)
         split_tiers = [bit.split(":") for bit in tier_bits]
         params.core_cost_tiers = [{"cores": parse_cores_str(cores), "cost": int(cost)} for (cores, cost) in split_tiers]
-            
+    elif arg.startswith("thread_factors="):
+        tier_bits = arg[len("thread_factors="):].split(",")
+        params.thread_factor_params = [float(x) for x in tier_bits]            
     elif arg == "debug":
         debug = True
     elif arg == "noplot":

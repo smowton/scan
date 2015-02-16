@@ -164,6 +164,10 @@ class SimState:
 
                 populate_fallbacks_from([], [c for (c, r) in all_config_ratios])
 
+                if self.debug:
+                    for (k, v) in self.ltadaptive_plans.iteritems():
+                        print k, "->", v
+
     def update_average_lengths(self):
 
         for i, q in enumerate(self.machine_queues):
@@ -427,7 +431,13 @@ class SimState:
             time_already_passed = self.now - (job.start_time if job.start_time is not None else self.now)
             baseline_stage_time = job.estimate_stage_time(self, dynamic_cores = 1, include_gather_time = True)
             baseline_stage_cost = (params.concurrent_cores_hired_to_cost(active_cores + 1) - params.concurrent_cores_hired_to_cost(active_cores)) * baseline_stage_time
-            baseline_rest_time = job.estimate_finish_time(self, dynamic_cores_per_stage = 1, from_stage = job.current_stage + 1)
+        
+            if future_dynamic_cores_fn is None:
+                baseline_cores = 1
+            else:
+                baseline_cores = future_dynamic_cores_fn(1)
+
+            baseline_rest_time = job.estimate_finish_time(self, dynamic_cores_per_stage = baseline_cores, from_stage = job.current_stage + 1)
             baseline_total_time = baseline_stage_time + baseline_rest_time + time_already_passed
             baseline_reward = job.estimate_reward(baseline_total_time)
 
@@ -513,12 +523,17 @@ class SimState:
             return best_plan[0]
 
         def pick_dynamic_cores_ltadaptive():
-
+            
             job = split.stage.job
             configs_so_far = tuple([rec["cores"] for rec in job.stage_configs])
             ideal_plan = self.ltadaptive_plans[configs_so_far]
-            use_ideal_cores = lambda this_stage_cores: self.ltadaptive_plans[configs_so_far + (this_stage_cores,)]
-            return pick_dynamic_cores_greedy_core([cores for cores in params.dynamic_core_choices if cores <= ideal_plan[job.current_stage]], future_dynamic_cores_fn = use_ideal_cores)
+            def guess_future_stage_cores(this_stage_cores):
+                new_config = configs_so_far + (this_stage_cores,)
+                if len(new_config) == 7:
+                    return 1
+                else:
+                    return self.ltadaptive_plans[new_config]
+            return pick_dynamic_cores_greedy_core([cores for cores in params.dynamic_core_choices if cores <= ideal_plan[job.current_stage]], future_dynamic_cores_fn = guess_future_stage_cores)
 
         def guess_job_plan(job):
 

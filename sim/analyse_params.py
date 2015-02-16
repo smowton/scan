@@ -10,6 +10,9 @@ job_scaling_factor = 1.0
 for arg in sys.argv:
     if arg.startswith("jobscaling="):
         job_scaling_factor = float(arg[len("jobscaling="):])
+    elif arg.startswith("thread_factors="):
+        tier_bits = arg[len("thread_factors="):].split(",")
+        params.thread_factor_params = [float(x) for x in tier_bits]            
 
 for i in range(len(params.thread_factor_params)):
     params.thread_factor_params[i] *= job_scaling_factor
