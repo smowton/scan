@@ -22,7 +22,7 @@ class SimState:
             self.machine_queues = [[] for x in machine_specs]
         self.machine_queue_average_lengths = [0.0 for x in machine_specs]
         self.machine_queue_average_service_intervals = [0.0 for x in machine_specs]
-        self.active_machines = [[] for x in machine_specs]
+        self.active_splits_by_type = [[[] for tier in params.core_cost_tiers] for x in machine_specs]
         self.nmachines = nmachines
         self.ncores = ncores
         self.running_cores = 0
@@ -179,8 +179,14 @@ class SimState:
 
         heappush(self.event_queue, (self.now + 1.0, UpdateAveragesEvent()))
 
+    def active_cores_of_type(self, typelist):
+        return sum([sum([m.stage.active_cores for m in tier_list]) for tier_list in typelist])
+
+    def active_cores_by_tier(self, i):
+        return sum([sum([s.stage.active_cores for s in typelist[i]]) for typelist in self.active_splits_by_type])
+
     def active_cores_with_jobs(self):
-        return sum([sum([m.stage.active_cores for m in active_list]) for active_list in self.active_machines])
+        sum([self.active_cores_of_type(typelist) for typelist in self.active_splits_by_type])
 
     def active_cores(self):
         # If nmachines contains integers then our machines are always up.
@@ -200,19 +206,15 @@ class SimState:
 
             # Pay for core usage since the last event:
             elapsed = event_time - self.now
-            active_cores = self.active_cores()
-            new_cost = params.concurrent_cores_hired_to_cost(active_cores) * elapsed
-            self.total_cost += new_cost
-            if active_cores != 0:
-                cost_per_core = new_cost / active_cores
-                for l in self.active_machines:
-                    for split in l:
+            for machine_type_list in self.active_splits_by_type:
+                for (i, (tier, tier_list)) in enumerate(zip(params.core_cost_tiers, machine_type_list)):
+                    for split in tier_list:
                         stage = split.stage
                         job = stage.job
-                        job.cost += cost_per_core * stage.active_cores
-
-            for i, tier_cores in enumerate(params.cores_hired_by_tier(self.active_cores())):
-                self.cost_by_tier[i] += (elapsed * tier_cores)
+                        new_cost = tier["cost"] * elapsed * stage.active_cores
+                        job.cost += new_cost
+                        self.total_cost += new_cost
+                        self.cost_by_tier[i] += new_cost
 
             self.now = event_time
 
@@ -220,8 +222,10 @@ class SimState:
                 print self.now
 
             if self.plot:
-                for i, active_list in enumerate(self.active_machines):
-                    print "%g,%d,%d,%d" % (self.now, i, sum([x.stage.active_cores for x in active_list]), len(active_list))
+                for i, machine_type_list in enumerate(self.active_splits_by_type):
+                    active_splits = sum([len(tier_list) for tier_list in machine_type_list])
+                    active_cores = self.active_cores_of_type(machine_type_list)
+                    print "%g,%d,%d,%d" % (self.now, i, active_cores, active_splits)
 
             event.run(self)
 
@@ -256,7 +260,14 @@ class SimState:
             # Decide whether to defer a single split of a job. Thus all costs are for a single split, not the whole job.
 
             # Don't defer if there is no work running.
-            if len(self.active_machines[queueidx]) == 0:
+            def any_work_running():
+                for typelist in self.active_splits_by_type:
+                    for tierlist in typelist:
+                        if len(tierlist) > 0:
+                            return True
+                return False
+
+            if not any_work_running():
                 return False
 
             # Don't defer if machines are statically allocated --
@@ -267,17 +278,18 @@ class SimState:
                 return False
 
             # If hiring now would draw from the lowest cost tier then just do it.
-            active = self.active_cores()
             if split.stage.is_gather:
-                cores_per_machine = 1
+                cores_wanted = 1
             else:
-                cores_per_machine = self.machine_specs[queueidx]
-            if cores_per_machine is None:
-                cores_per_machine = split.stage.active_cores
-            if cores_per_machine is None:
-                cores_per_machine = this_stage_cores
-            hire_now_tier = params.core_tier(active + cores_per_machine)
-            if hire_now_tier == 0:
+                cores_wanted = self.machine_specs[queueidx]
+            if cores_wanted is None:
+                cores_wanted = split.stage.active_cores
+            if cores_wanted is None:
+                cores_wanted = this_stage_cores
+
+            private_tier_active_cores = self.active_cores_by_tier(0)
+            cores_needed = (private_tier_active_cores + cores_wanted) - params.core_cost_tiers[0]["cores"]
+            if cores_needed <= 0:
                 return False
 
             if self.hscale_algorithm == "always":
@@ -285,10 +297,9 @@ class SimState:
             elif self.hscale_algorithm == "never":
                 return True
 
-            # Would we save cost by waiting to drop a cost tier instead of hiring now?
+            # Would we save cost by waiting for private tier cores to become free?
             this_split_time = split.stage.estimate_split_time(self, dynamic_cores = this_stage_cores)
-            cores_to_drop_tier = (active + cores_per_machine) - sum([x["cores"] for x in params.core_cost_tiers[:hire_now_tier]])
-            saving = params.core_cost_tiers[hire_now_tier]["cost"] - params.core_cost_tiers[hire_now_tier - 1]["cost"]
+            saving = params.core_cost_tiers[1]["cost"] - params.core_cost_tiers[0]["cost"]
             saving *= this_split_time
 
             # Calculate new predicted finish times for each task that is currently running, based
@@ -315,8 +326,13 @@ class SimState:
                 else:
                     raise Exception("Bad hscale algorithm: " + self.hscale_algorithm)
 
-            split_finish_times = [(s, predict_finish_time(s)) for s in self.active_machines[queueidx]]
+            # Only consider splits running at tier 0.
+            # TOFIX: For the case with multiple queues, consider splits in other queues?
+            split_finish_times = [(s, predict_finish_time(s)) for s in self.active_splits_by_type[queueidx][0]]
             next_finish_splits = sorted(split_finish_times, key = lambda x: x[1], reverse = True)
+
+            # Keep the ordered splits for next time, since Python 'sorted' benefits from mostly-ordered data
+            self.active_splits_by_type[queueidx][0] = [x[0] for x in next_finish_splits]
 
             # What would it cost to extend each queued task's start time by the expected queueing time, vs. starting it now?
             # Firstly how long a delay are we proposing? This is the time until enough active machines finish:
@@ -328,14 +344,13 @@ class SimState:
 
             i = 1
             defer_delay = None
-            while cores_to_drop_tier >= 0 and i <= len(next_finish_splits):
-                cores_to_drop_tier -= next_finish_splits[-i][0].stage.active_cores
+            while cores_needed >= 0 and i <= len(next_finish_splits):
+                cores_needed -= next_finish_splits[-i][0].stage.active_cores
                 defer_delay = next_finish_splits[-i][1] - self.now
                 i += 1
 
-            if cores_to_drop_tier > 0:
-                splits_to_drop_tier = (cores_to_drop_tier + (cores_per_machine - 1)) / cores_per_machine
-                defer_delay += (this_split_time * (float(splits_to_drop_tier) / len(self.active_machines[queueidx])))
+            if cores_needed > 0:
+                raise Exception("Still short of private-tier cores after accounting for all running splits? Tier too small, or max cores per job too large.")
 
             # Avoid FP error:
             if defer_delay < 0.001:
@@ -388,7 +403,7 @@ class SimState:
                 else:
                     # Estimate: on average splits further back in the queue will get to start on average
                     # every stage_time / n_active_splits seconds.
-                    next_start_time += (qsplit.stage.estimate_split_time(self, dynamic_cores = guess_job_plan(qjob)) / len(self.active_machines[queueidx]))
+                    next_start_time += (qsplit.stage.estimate_split_time(self, dynamic_cores = guess_job_plan(qjob)) / len(self.active_splits_by_type[queueidx][0]))
                 
             balance = saving - total_defer_penalty
 
@@ -428,13 +443,18 @@ class SimState:
             job = split.stage.job
 
             active_cores = self.active_cores()
-            active_splits = sum([len(x) for x in self.active_machines])
+            active_splits = sum([sum([len(x) for x in typelist]) for typelist in self.active_splits_by_type])
             predicted_splits = (active_splits * self.vscale_params["greed"]) + 1
             new_splits = predicted_splits - active_splits
 
             time_already_passed = self.now - (job.start_time if job.start_time is not None else self.now)
             baseline_stage_time = job.estimate_stage_time(self, dynamic_cores = 1, include_gather_time = True)
-            baseline_stage_cost = (params.concurrent_cores_hired_to_cost(active_cores + 1) - params.concurrent_cores_hired_to_cost(active_cores)) * baseline_stage_time
+            private_tier = params.core_cost_tiers[0]
+            public_tier = params.core_cost_tiers[1]
+            private_tier_used_cores = self.active_cores_by_tier(0)
+            private_tier_free_cores = private_tier["cores"] - private_tier_used_cores
+            baseline_cost = private_tier["cost"] if private_tier_used_cores == private_tier["cores"] else public_tier["cost"]
+            baseline_cost *= baseline_stage_time
         
             if future_dynamic_cores_fn is None:
                 baseline_cores = 1
@@ -468,7 +488,11 @@ class SimState:
                 # with work (rising to 10x the current load), and so picking a high core count will do a lot of harm.
 
                 new_cores = new_splits * cores
-                new_cores_cost = (params.concurrent_cores_hired_to_cost(active_cores + new_cores) - params.concurrent_cores_hired_to_cost(active_cores)) * split_time
+                new_private_cores = min(new_cores, private_tier_free_cores)
+                new_public_cores = new_cores - new_private_cores
+
+                new_cores_cost = (new_private_cores * private_tier["cost"]) + (new_public_cores * public_tier["cost"])
+                new_cores_cost *= split_time
                 average_cost_per_split = float(new_cores_cost) / new_splits
 
                 if self.debug:
@@ -497,9 +521,14 @@ class SimState:
             best_plan = None
             best_reward = 0
             active_cores = self.active_cores()
-            active_splits = sum([len(x) for x in self.active_machines])
+            active_splits = sum([sum([len(x) for x in typelist]) for typelist in self.active_splits_by_type])
             predicted_splits = (active_splits * self.vscale_params["greed"]) + 1
             new_splits = predicted_splits - active_splits
+
+            private_tier = params.core_cost_tiers[0]
+            public_tier = params.core_cost_tiers[1]
+            private_tier_used_cores = self.active_cores_by_tier(0)
+            private_tier_free_cores = private_tier["cores"] - private_tier_used_cores
 
             for (config, avgcores) in self.candidate_configs:
 
@@ -511,7 +540,11 @@ class SimState:
                 # This may make us eager to break into expensive resources just now based on a prediction that the remainder of the job will run in similar circumstances and can fit on average.
                 # As for the greedy scheme, the greed parameter moderates this desire to some degree.
                 new_cores = new_splits * avgcores
-                new_cores_cost = (params.concurrent_cores_hired_to_cost(active_cores + new_cores) - params.concurrent_cores_hired_to_cost(active_cores)) * est_time
+                new_private_cores = min(new_cores, private_tier_free_cores)
+                new_public_cores = new_cores - new_private_cores
+
+                new_cores_cost = (new_private_cores * private_tier["cost"]) + (new_public_cores * public_tier["cost"])
+                new_cores_cores *= est_time
                 average_cost_per_split = float(new_cores_cost) / new_splits
                 
                 est_reward -= average_cost_per_split
@@ -562,7 +595,8 @@ class SimState:
         run_now = True
         could_run_now = True
 
-        if self.nmachines[queueidx] is not None and len(self.active_machines[queueidx]) == self.nmachines[queueidx]:
+        
+        if self.nmachines[queueidx] is not None and sum([len(x) for x in self.active_splits_by_type[queueidx]]) == self.nmachines[queueidx]:
             # No machines available
             run_now = False
             could_run_now = False
@@ -604,7 +638,12 @@ class SimState:
         vm_startup_delay = params.vm_startup_delay if self.nmachines[queueidx] is None else 0
 
         if self.ncores is None:
-            self.active_machines[queueidx].append(split)
+            private_tier_free_cores = params.core_cost_tiers[0]["cores"] - self.active_cores_by_tier(0)
+            if private_tier_free_cores >= cores:
+                split.run_tier = 0
+            else:
+                split.run_tier = 1
+            self.active_splits_by_type[queueidx][split.run_tier].append(split)
         else:
             self.running_cores += cores
         split.schedule_split(self, cores, vm_startup_delay)
@@ -618,8 +657,8 @@ class SimState:
         if self.ncores is not None:
             self.running_cores -= self.machine_specs[split.stage.stage_idx]
         else:
-            machines = self.active_machines[queue_idx]
-            machines.remove(split)
+            splits = self.active_splits_by_type[queue_idx][split.run_tier]
+            splits.remove(split)
 
         self.try_run_next_split(queue_idx)
 
