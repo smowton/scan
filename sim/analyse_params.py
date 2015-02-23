@@ -7,13 +7,19 @@ import sys
 
 job_scaling_factor = 1.0
 
+reward_fn = params.time_reward
+
 for arg in sys.argv:
     if arg.startswith("jobscaling="):
         job_scaling_factor = float(arg[len("jobscaling="):])
     elif arg.startswith("thread_factors="):
         tier_bits = arg[len("thread_factors="):].split(",")
-        params.thread_factor_params = [float(x) for x in tier_bits]            
+        params.thread_factor_params = [float(x) for x in tier_bits]
+    elif arg == "rewardfn=throughput":
+        reward_fn = params.throughput_reward
 
+params.reward = reward_fn
+    
 for i in range(len(params.thread_factor_params)):
     params.thread_factor_params[i] *= job_scaling_factor
     if params.thread_factor_params[i] > 1:

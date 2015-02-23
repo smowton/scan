@@ -53,7 +53,8 @@ def count_queue():
     
     jobs = torque.statjob()
     for j in jobs:
-        if job_getattr(j, "Job_Owner").startswith("csmowton") and job_getattr(j, "job_state") == "Q":
+        state = job_getattr(j, "job_state")
+        if job_getattr(j, "Job_Owner").startswith("csmowton") and (state == "Q" or state == "H"):
             count += 1
 
     global queued_jobs
@@ -137,6 +138,8 @@ def starttry(t):
 
     if params["machine_specs"][0] is None:
         specs_param = ""
+    elif profile == "horiz-singlequeue":
+        specs_param = "vscale=constant,plan=" + ":".join([str(x) for x in params["machine_specs"]])
     else:
         specs_param = "machine_specs=" + ",".join([str(x) for x in params["machine_specs"]])
 
@@ -148,6 +151,7 @@ def starttry(t):
     splits_param = "phase_splits=" + ",".join([str(x) for x in params["phase_splits"]])
 
     command = ["python", "/home/csmowton/tmp/scan/sim/driver.py", nmachines_param, specs_param, splits_param, cores_param, "noplot", "json"]
+    command.extend(extra_sim_args)
     command = filter(lambda x: len(x) > 0, command)
 
     with open(shellfile, "w") as f:
@@ -158,7 +162,8 @@ def starttry(t):
     attribs = [
         pbs.Attr("Output_Path", tryfile(t) + ".err"),
         pbs.Attr("Join_Path", "true"),
-        pbs.Attr("PBS_O_WORKDIR", trydir(t))
+        pbs.Attr("PBS_O_WORKDIR", trydir(t)),
+        pbs.Attr("Hold_Types", "u")
     ]
 
     while True:
@@ -182,7 +187,7 @@ def read_try_result(t):
         with open(tryfile(t), "r") as f:
 
             result = json.load(f)
-            if "reward" not in result or "ratio" not in result or "cost" not in result:
+            if "reward" not in result or "avgprofit" not in result or "cost" not in result:
                 raise NoSuchTryException("Not finished, or bad JSON?")
             return result
 
@@ -370,7 +375,7 @@ def up_from(p):
 
 def param_result(p):
     try:
-        return float(sum([try_results[try_tuple({"try": i, "params": p})]["ratio"] for i in range(n_tries)])) / n_tries
+        return float(sum([try_results[try_tuple({"try": i, "params": p})]["avgprofit"] for i in range(n_tries)])) / n_tries
     except KeyError:
         return None
 
@@ -449,9 +454,9 @@ if __name__ == "__main__":
         init_params = {"nmachines": [12,12,12,12,12,4,12], "ncores": None, "machine_specs": [1] * 7, "phase_splits": [1] * 7}
     elif profile == "noflex":
         init_params = {"nmachines": [80], "ncores": None, "machine_specs": [1], "phase_splits": [1] * 7}
-    elif profile == "horiz":
+    elif profile == "horiz-singlespec":
         init_params = {"nmachines": [None], "ncores": None, "machine_specs": [1], "phase_splits": [1] * 7}
-    elif profile == "horiz-multiqueue":
+    elif profile == "horiz-multiqueue" or profile == "horiz-singlequeue":
         init_params = {"nmachines": [None] * 7, "ncores": None, "machine_specs": [1] * 7, "phase_splits": [1] * 7}
     elif profile == "vert":
         init_params = {"nmachines": [None], "ncores": None, "machine_specs": [None], "phase_splits": [1] * 7}
@@ -463,6 +468,9 @@ if __name__ == "__main__":
 
     if "nosplits" in sys.argv:
         disable_splits = True
+        sys.argv.remove("nosplits")
+
+    extra_sim_args = sys.argv[3:]
 
     start_trial(init_params)
 

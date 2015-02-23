@@ -60,7 +60,9 @@ def gather_time(record_count, phase_index):
     # Say roughly 10% of the time required to actually process a record.
     return float(record_count) / 10
 
-def reward(total_pipeline_latency, record_count):
+reward = None
+
+def time_reward(total_pipeline_latency, record_count):
 
     standard_reward = 1800
     job_size_factor = float(record_count) / 5
@@ -68,6 +70,11 @@ def reward(total_pipeline_latency, record_count):
 
     score = float(120 - total_pipeline_latency) / 120
     return score * standard_reward
+
+def throughput_reward(total_pipeline_latency, record_count):
+    
+    reward_factor = 15000.0
+    return (reward_factor * record_count) / float(total_pipeline_latency)
 
 core_cost_tiers = [{"cores": 100, "cost": 5}, {"cores": None, "cost": 50}]
 

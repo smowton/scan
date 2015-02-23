@@ -337,6 +337,10 @@ class SimState:
                 splits_to_drop_tier = (cores_to_drop_tier + (cores_per_machine - 1)) / cores_per_machine
                 defer_delay += (this_split_time * (float(splits_to_drop_tier) / len(self.active_machines[queueidx])))
 
+            # Avoid FP error:
+            if defer_delay < 0.001:
+                return True
+
             def job_defer_penalty(qjob, start_delay, defer_delay):
 
                 # How long will this job's run be in all?

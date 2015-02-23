@@ -25,6 +25,7 @@ vscale_params = {"greed": "1", "queuefactor": "1"}
 job_scaling_factor = 1.0
 arrival_proc = "normal"
 arrival_proc_args = {"mean_arrival": "3.0"}
+reward_fn = params.time_reward
 
 for arg in sys.argv[1:]:
     if arg.startswith("nmachines="):
@@ -65,6 +66,14 @@ for arg in sys.argv[1:]:
     elif arg.startswith("thread_factors="):
         tier_bits = arg[len("thread_factors="):].split(",")
         params.thread_factor_params = [float(x) for x in tier_bits]            
+    elif arg.startswith("rewardfn="):
+        newfn = arg[len("rewardfn="):]
+        if newfn == "throughput":
+            reward_fn = params.throughput_reward
+        elif newfn == "time":
+            reward_fn = params.time_reward
+        else:
+            raise Exception("Bad reward function: " + newfn)
     elif arg == "debug":
         debug = True
     elif arg == "noplot":
@@ -73,6 +82,8 @@ for arg in sys.argv[1:]:
         print_json = True
     else:
         raise Exception("Unrecognised argument: %s" % arg)
+
+params.reward = reward_fn
 
 if phase_splits is None:
     phase_splits = [1] * 7

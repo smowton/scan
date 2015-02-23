@@ -6,6 +6,7 @@ import sys
 import os
 import os.path
 import json
+import numpy
 
 def arg_to_dir(arg):
     return "-".join([str(int(x)) for x in arg.split(",")])
@@ -41,24 +42,29 @@ def get_best_result_in(root_dir, match_nmachines = None, match_cores = None, mat
             abscoredir = os.path.join(abssplitdir, coredir)
             for machinedir in get_dirs(match_nmachines, abscoredir):
 
-                try:
+                absncoresdir = os.path.join(abscoredir, machinedir)
+                for ncoresdir in get_dirs(None, absncoresdir):
 
-                    def load_try(i):
-                        with open(os.path.join(abscoredir, machinedir, str(i), "out.json"), "r") as f:
-                            return json.load(f)["ratio"]
+                    try:
 
-                    result = sum([load_try(i) for i in range(10)]) / 10
-                    spec = {"phase_splits": splitdir, "machine_specs": coredir, "nmachines": machinedir}
-                    for (k, v) in spec.items():
-                        spec[k] = dirname_to_list(v)
+                        def load_try(i):
+                            with open(os.path.join(absncoresdir, ncoresdir, str(i), "out.json"), "r") as f:
+                                return json.load(f)["avgprofit"]
 
-                    results.append({"spec": spec, "result": result})
+                        tries = [load_try(i) for i in range(10)]
+                        mean = numpy.mean(tries)
+                        std = numpy.std(tries)
+                        spec = {"phase_splits": splitdir, "machine_specs": coredir, "nmachines": machinedir}
+                        for (k, v) in spec.items():
+                            spec[k] = dirname_to_list(v)
 
-                except Exception as e:
-                    
-                    print >>sys.stderr, "Skipping malformed result", os.path.join(abscoredir, machinedir), "(%s)" % e
+                        results.append({"spec": spec, "mean": mean, "std": std})
 
-    return sorted(results, key = lambda x : x["result"], reverse = True)
+                    except Exception as e:
+
+                        print >>sys.stderr, "Skipping malformed result", os.path.join(abscoredir, machinedir), "(%s)" % e
+
+    return sorted(results, key = lambda x : x["mean"], reverse = True)
 
 if __name__ == "__main__":
 
@@ -92,6 +98,7 @@ if __name__ == "__main__":
 
     for result in results:
 
-        print result["spec"], result["result"]
+        json.dump(result, sys.stdout)
+        sys.stdout.write("\n")
                 
     
