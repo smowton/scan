@@ -8,6 +8,19 @@ import numbers
 # If nmachines is None, use dynamic horizontal scaling
 # If machine_specs entries are None, use dynamic vertical scaling
 
+def tobool(s):
+    s = s.lower().strip()
+    if s == "yes":
+        return True
+    elif s == "no":
+        return False
+    elif s == "true":
+        return True
+    elif s == "false":
+        return False
+    else:
+        raise Exception("Can't parse %s as boolean" % s)
+
 class SimState:
 
     average_length_memory_factor = 0.9
@@ -55,7 +68,14 @@ class SimState:
         heappush(self.event_queue, (0, first_event))
         heappush(self.event_queue, (1.0, UpdateAveragesEvent()))
 
+        self.init_hscale_algorithm()
         self.init_vscale_algorithm()
+
+    def init_hscale_algorithm(self):
+        if "networkaware" in self.hscale_params:
+            self.hscale_params["networkaware"] = tobool(self.hscale_params["networkaware"])
+        else:
+            self.hscale_params["networkaware"] = False
 
     def init_vscale_algorithm(self):
 
@@ -313,8 +333,11 @@ class SimState:
 
             # Would we save cost by waiting for private tier cores to become free?
             this_split_time = split.stage.estimate_split_time(self, dynamic_cores = this_stage_cores)
-            saving = params.core_cost_tiers[1]["cost"] - params.core_cost_tiers[0]["cost"]
-            saving *= this_split_time
+            extra_public_tier_cost = params.core_cost_tiers[1]["cost"] - params.core_cost_tiers[0]["cost"]
+            extra_public_tier_cost *= this_split_time
+
+            if self.hscale_params["networkaware"] and split.stage.job.current_data_site == 0:
+                extra_public_tier_cost += params.data_transfer_cost(split.stage.job.nrecords)
 
             # Calculate new predicted finish times for each task that is currently running, based
             # on the prediction originally entered when they started and the current time.
@@ -366,8 +389,14 @@ class SimState:
             if cores_needed > 0:
                 raise Exception("Still short of private-tier cores after accounting for all running splits? Tier too small, or max cores per job too large.")
 
+            if self.hscale_params["networkaware"] and split.stage.job.current_data_site == 0:
+                # Account for the delay we will experience moving to the public tier due to data transfer cost:
+                defer_delay -= ((self.next_transfer_start_time(1) - self.now) + params.data_transfer_time(split.stage.job.nrecords))
+
             # Avoid FP error:
             if defer_delay < 0.001:
+                if self.debug:
+                    print "Total delay", defer_delay, "very small or negative; will not defer"
                 return True
 
             def job_defer_penalty(qjob, start_delay, defer_delay):
@@ -419,10 +448,10 @@ class SimState:
                     # every stage_time / n_active_splits seconds.
                     next_start_time += (qsplit.stage.estimate_split_time(self, dynamic_cores = guess_job_plan(qjob)) / len(self.active_splits_by_type[queueidx][0]))
                 
-            balance = saving - total_defer_penalty
+            balance = extra_public_tier_cost - total_defer_penalty
 
             if self.debug:
-                print "Considered deferring", str(split), "for", defer_delay, "saving", saving, "qlen", len(queue), "total defer penalty", total_defer_penalty, "balance", balance
+                print "Considered deferring", str(split), "for", defer_delay, "extra_public_tier_cost", extra_public_tier_cost, "qlen", len(queue), "total defer penalty", total_defer_penalty, "balance", balance
                 
             # Avoid silly FP errors when the balance is nearly zero
             return balance > 1
