@@ -18,11 +18,17 @@ for line in sys.stdin:
     line = line.strip()
     if line == "":
         continue
-
-    time, series, cores, jobs = line.split(",")
+    
+    bits = line.split(",")
+    if len(bits) == 4:
+        time, series, cores, jobs = bits
+    elif len(bits) == 3:
+        time, series, jobs = bits
+        cores = None
     time = float(time)
     series = int(series)
-    cores = int(cores)
+    if cores is not None:
+        cores = int(cores)
     jobs = int(jobs)
 
     while len(cores_points) <= series:
@@ -30,11 +36,15 @@ for line in sys.stdin:
         jobs_points.append([])
         series_times.append([])
 
-    cores_points[series].append(cores)
+    if cores is not None:
+        cores_points[series].append(cores)
     jobs_points[series].append(jobs)
     series_times[series].append(time)
 
 def downsample(series, order):
+
+    if len(series) == 0:
+        return series
 
     newseries = []
     i = 0
@@ -61,6 +71,10 @@ plots = []
 
 if len(jobs_points) == 1:
     phase_titles = ["Active analysis tasks"]
+elif len(jobs_points) == 3:
+    phase_titles = ["Active analysis tasks",
+                    "Queued transfers public -> private",
+                    "Queued transfers private -> public"]
 else:
     phase_titles = ["Active phase 1 (RealignerTargetCreator) tasks",
                     "Active phase 2 (IndelRealigner) tasks",
@@ -74,7 +88,10 @@ else:
 
 for (core_points, job_points, times, title) in zip(cores_points, jobs_points, series_times, phase_titles):
 
-    plots.append((title, [(times, job_points), (times, core_points)]))
+    series = [(times, job_points)]
+    if len(core_points) > 0:
+        series.append((times, core_points))
+    plots.append((title, series))
 
 ccgrid_graphing.stackplot.draw_stackplot(plots, xlabel = "Sim time elapsed (minutes)", ylabel = "Active jobs or cores", save_file = save_file)
 

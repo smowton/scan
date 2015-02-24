@@ -100,3 +100,12 @@ def predicted_to_real_time(predicted_time):
     pred = predicted_time * random.normalvariate(1, runtime_prediction_error)
     realtime = min(max(predicted_time * 0.1, pred), predicted_time * 1.9)
     return realtime
+
+inter_site_data_rate = None
+inter_site_data_cost = None
+
+def data_transfer_time(records):
+    return records / inter_site_data_rate
+
+def data_transfer_cost(records):
+    return records * inter_site_data_cost

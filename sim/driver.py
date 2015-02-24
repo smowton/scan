@@ -74,6 +74,10 @@ for arg in sys.argv[1:]:
             reward_fn = params.time_reward
         else:
             raise Exception("Bad reward function: " + newfn)
+    elif arg.startswith("isdata="):
+        bits = arg[len("isdata="):].split(",")
+        params.inter_site_data_rate = float(bits[0])
+        params.inter_site_data_cost = float(bits[1])
     elif arg == "debug":
         debug = True
     elif arg == "noplot":
@@ -155,16 +159,16 @@ for config, jobs in sorted(configs.iteritems(), key = lambda k : len(k[1]), reve
 
 if print_json:
 
-    print json.dumps({"reward": state.total_reward, "cost": state.total_cost, "avgprofit": avg_profit, "avgqueuetime": avg_queue_time, "avgruntime": avg_run_time, "queuepc": queue_pc, "top_configs": top_configs})
+    print json.dumps({"reward": state.total_reward, "cost": state.total_cost, "transfercost": state.total_transfer_cost, "avgprofit": avg_profit, "avgqueuetime": avg_queue_time, "avgruntime": avg_run_time, "queuepc": queue_pc, "top_configs": top_configs})
 
 else:
 
     print >>sys.stderr, "Total reward", state.total_reward
-    print >>sys.stderr, "Total cost", state.total_cost
+    print >>sys.stderr, "Total cost", state.total_cost, "of which data transfer", state.total_transfer_cost
     print >>sys.stderr, "Average profit", avg_profit
 
-    for tier, (tus, costpertu) in enumerate(zip(state.cost_by_tier, [tier["cost"] for tier in params.core_cost_tiers])):
-        print >>sys.stderr, "Cost at tier %d: %d" % (tier + 1, tus * costpertu)
+    for tier, cost in enumerate(state.cost_by_tier):
+        print >>sys.stderr, "Cost at tier %d: %f" % (tier + 1, cost)
 
     print >>sys.stderr, "Average job spent", avg_queue_time, "waiting in queues, %g%% of total runtime" % queue_pc
 

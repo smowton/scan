@@ -20,6 +20,11 @@ class SimState:
             self.machine_queues = [[]]
         else:
             self.machine_queues = [[] for x in machine_specs]
+        if params.inter_site_data_rate is not None:
+            if any([x != 1 for x in phase_splits]):
+                raise Exception("Combination of data transfer modelling and phase splitting not yet implemented")
+            self.transfer_queues = [[], []]
+            self.active_transfers = [None, None]
         self.machine_queue_average_lengths = [0.0 for x in machine_specs]
         self.machine_queue_average_service_intervals = [0.0 for x in machine_specs]
         self.active_splits_by_type = [[[] for tier in params.core_cost_tiers] for x in machine_specs]
@@ -30,7 +35,8 @@ class SimState:
         self.phase_splits = phase_splits
         self.arrival_process = arrival_process
         self.total_cost = 0
-        self.cost_by_tier = [0] * len(params.core_cost_tiers)
+        self.total_transfer_cost = 0
+        self.cost_by_tier = [0.0] * len(params.core_cost_tiers)
         self.total_reward = 0
         self.stop_time = stop_time
         self.debug = debug
@@ -206,15 +212,20 @@ class SimState:
 
             # Pay for core usage since the last event:
             elapsed = event_time - self.now
+            if elapsed < 0:
+                raise Exception("Time went backwards (previous %s, current %s has %s)" % (self.now, event, event_time))
+
             for machine_type_list in self.active_splits_by_type:
                 for (i, (tier, tier_list)) in enumerate(zip(params.core_cost_tiers, machine_type_list)):
                     for split in tier_list:
-                        stage = split.stage
-                        job = stage.job
-                        new_cost = tier["cost"] * elapsed * stage.active_cores
-                        job.cost += new_cost
-                        self.total_cost += new_cost
-                        self.cost_by_tier[i] += new_cost
+                        # Splits that are transferring data have reserved their cores but are not yet using them.
+                        if split.transfer_finish_time is None:
+                            stage = split.stage
+                            job = stage.job
+                            new_cost = tier["cost"] * elapsed * stage.active_cores
+                            job.cost += new_cost
+                            self.total_cost += new_cost
+                            self.cost_by_tier[i] += new_cost
 
             self.now = event_time
 
@@ -226,6 +237,9 @@ class SimState:
                     active_splits = sum([len(tier_list) for tier_list in machine_type_list])
                     active_cores = self.active_cores_of_type(machine_type_list)
                     print "%g,%d,%d,%d" % (self.now, i, active_cores, active_splits)
+                if params.inter_site_data_rate is not None:
+                    for i, tqueue in enumerate(self.transfer_queues):
+                        print "%g,%d,%d" % (self.now, len(self.active_splits_by_type) + i, len(tqueue))
 
             event.run(self)
 
@@ -646,7 +660,8 @@ class SimState:
             self.active_splits_by_type[queueidx][split.run_tier].append(split)
         else:
             self.running_cores += cores
-        split.schedule_split(self, cores, vm_startup_delay)
+
+        split.schedule_split(self, cores, vm_startup_delay, split.run_tier)
 
         return True
 
@@ -667,6 +682,47 @@ class SimState:
         arrival_time, event = self.arrival_process.next(self)
         heappush(self.event_queue, (self.now + arrival_time, event))
 
+    def next_transfer_start_time(self, tosite):
+        if params.inter_site_data_rate is None:
+            return self.now
+        elif len(self.transfer_queues[tosite]) != 0:
+            return self.transfer_queues[tosite][-1].transfer_finish_time
+        elif self.active_transfers[tosite] is not None:
+            return self.active_transfers[tosite].transfer_finish_time
+        else:
+            return self.now
+
+    def enqueue_transfer(self, split, tosite):
+        if self.active_transfers[tosite] is None:
+            self.start_transfer(split, tosite)
+        else:
+            self.transfer_queues[tosite].append(split)
+            if self.debug:
+                print "Transfer for", split, "queued, expected to complete at", split.transfer_finish_time
+
+    def start_transfer(self, split, tosite):
+        self.active_transfers[tosite] = split
+        end_event = TransferDoneEvent(split)
+        heappush(self.event_queue, (split.transfer_finish_time, end_event))        
+        if self.debug:
+            print "Start transfer", split, "expected to complete at", split.transfer_finish_time
+
+    def finish_transfer(self, split):
+        tosite = split.stage.job.current_data_site
+        self.active_transfers[tosite] = None
+        split.schedule_split_posttransfer(self)
+        
+        transfer_cost = params.data_transfer_cost(split.stage.job.nrecords)
+        self.total_transfer_cost += transfer_cost
+        self.total_cost += transfer_cost
+
+        if self.debug:
+            print "Transfer finished for", split
+
+        if len(self.transfer_queues[tosite]) != 0:
+            nextsplit = self.transfer_queues[tosite].pop(0)
+            self.start_transfer(nextsplit, tosite)
+        
 class ArrivalEvent:
 
     def __init__(self, jobs):
@@ -676,6 +732,14 @@ class ArrivalEvent:
         for job in self.jobs:
             state.queue_job_next_stage(job)
         state.queue_next_arrival()
+
+class TransferDoneEvent:
+
+    def __init__(self, split):
+        self.split = split
+        
+    def run(self, state):
+        state.finish_transfer(self.split)
 
 class SplitDoneEvent:
 
@@ -704,6 +768,7 @@ class JobSplit:
         self.split_finish_time = None
         self.split_idx = split_idx
         self.created_time = created_time
+        self.transfer_finish_time = None
 
     def __str__(self):
         
@@ -714,23 +779,52 @@ class JobSplit:
             ret += " (gather phase)"
         return ret
 
-    def schedule_split(self, state, cores, vm_startup_delay):
+    def schedule_split(self, state, cores, vm_startup_delay, runsite):
 
         self.stage.schedule_split(state, cores)
 
         self.split_start_time = state.now
-        predicted_runtime = self.stage.estimate_split_time(state, dynamic_cores = cores) + vm_startup_delay
-        self.split_finish_time = state.now + predicted_runtime
+        if params.inter_site_data_rate is not None and runsite != self.stage.job.current_data_site:
+            transfer_time = params.data_transfer_time(self.stage.job.nrecords)
+            self.transfer_finish_time = state.next_transfer_start_time(runsite) + transfer_time
+        else:
+            transfer_time = 0.0
+            self.transfer_finish_time = None
 
-        if state.debug:
-            print "Start", str(self), "stage", self.stage.job.current_stage, "at", state.now, "expected finish", self.split_finish_time
-            
-        real_runtime = params.predicted_to_real_time(predicted_runtime)
-        split_end_event = SplitDoneEvent(self)
-        heappush(state.event_queue, (state.now + real_runtime, split_end_event))
+        self.predicted_fixed_runtime = vm_startup_delay
+        self.predicted_variable_runtime = self.stage.estimate_split_time(state, dynamic_cores = cores)
+        self.split_finish_time = state.next_transfer_start_time(runsite) + transfer_time + self.predicted_fixed_runtime + self.predicted_variable_runtime
 
         queue_delay = state.now - self.created_time
         self.stage.job.total_queue_delay += queue_delay
+
+        if state.debug:
+            print "Start", str(self), "stage", self.stage.job.current_stage, "at", state.now, "expected finish", self.split_finish_time
+            if self.transfer_finish_time is not None:
+                print "Data transfer to", runsite, "predicted to end at", self.transfer_finish_time
+
+        self.stage.job.current_data_site = runsite
+
+        if self.transfer_finish_time is None:
+            self.schedule_split_posttransfer(state)
+        else:
+            state.enqueue_transfer(self, runsite)
+
+    def schedule_split_posttransfer(self, state):
+        
+        real_runtime = params.predicted_to_real_time(self.predicted_variable_runtime) + self.predicted_fixed_runtime
+        split_end_event = SplitDoneEvent(self)
+        real_finish_time = state.now + real_runtime
+        if real_finish_time < state.now:
+            raise Exception("%s finish time is %s, but it is already %s (created %s, start %s, transfer finish %s)" % (self, real_finish_time, state.now, self.created_time, self.split_start_time, self.transfer_finish_time))
+        if self.transfer_finish_time is not None and state.now != self.transfer_finish_time:
+            raise Exception("Inter-site transfers are currently deterministic, but predicted %s does not match current time %s" % (self.transfer_finish_time, state.now))
+
+        # The transfer_finish_time is used to distinguish active cores (processing) 
+        # from reserved cores (due to active or pending transfer)
+        self.transfer_finish_time = None
+
+        heappush(state.event_queue, (real_finish_time, split_end_event))
         
     def split_done(self, state):
 
@@ -824,6 +918,8 @@ class Job:
         self.longterm_plan = None
         self.total_queue_delay = 0.0
         self.cost = 0.0
+        # Job data always starts off at site 0, the private tier.
+        self.current_data_site = 0
 
     def __str__(self):
         return "Job %d (size %g)" % (self.job_id, self.nrecords)
