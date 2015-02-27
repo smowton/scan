@@ -435,6 +435,9 @@ class SimState:
                 # Don't double-count the penalty for slowing the job down (but do bump the start time)
                 if qjob not in unique_jobs:
                     total_defer_penalty += job_defer_penalty(qjob, next_start_time - self.now, defer_delay)
+                    balance = extra_public_tier_cost - total_defer_penalty
+                    if balance < 1:
+                        break
                 unique_jobs.add(qjob)
 
                 # Dubiousness here: we're assuming roughly one split in, one split out -- but we could have e.g.
@@ -451,7 +454,7 @@ class SimState:
             balance = extra_public_tier_cost - total_defer_penalty
 
             if self.debug:
-                print "Considered deferring", str(split), "for", defer_delay, "extra_public_tier_cost", extra_public_tier_cost, "qlen", len(queue), "total defer penalty", total_defer_penalty, "balance", balance
+                print "Considered deferring", str(split), "for", defer_delay, "extra_public_tier_cost", extra_public_tier_cost, "qlen", len(queue)
                 
             # Avoid silly FP errors when the balance is nearly zero
             return balance > 1
@@ -587,7 +590,7 @@ class SimState:
                 new_public_cores = new_cores - new_private_cores
 
                 new_cores_cost = (new_private_cores * private_tier["cost"]) + (new_public_cores * public_tier["cost"])
-                new_cores_cores *= est_time
+                new_cores_cost *= est_time
                 average_cost_per_split = float(new_cores_cost) / new_splits
                 
                 est_reward -= average_cost_per_split
@@ -613,8 +616,14 @@ class SimState:
                     return 1
                 else:
                     return self.ltadaptive_plans[new_config]
-            return pick_dynamic_cores_greedy_core([cores for cores in params.dynamic_core_choices if cores <= ideal_plan[job.current_stage]], future_dynamic_cores_fn = guess_future_stage_cores)
-
+            ltcores = pick_dynamic_cores_greedy_core([cores for cores in params.dynamic_core_choices if cores <= ideal_plan[job.current_stage]], future_dynamic_cores_fn = guess_future_stage_cores)
+            if self.debug:
+                print "Greedy result for comparison:"
+                greedycores = pick_dynamic_cores_greedy()
+                if ltcores != greedycores:
+                    print "LTCores and GreedyCores differ!"
+            return ltcores
+            
         def guess_job_plan(job):
 
             if self.vscale_algorithm == "greedy":
