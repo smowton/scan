@@ -13,11 +13,39 @@ import datetime
 import traceback
 import websupport
 import imp
+import math
 
 import scan_templates
 import integ_analysis.results
 
 runner = ["/usr/bin/ssh", "-o", "StrictHostKeyChecking=no"]
+
+def reward_loss(reward_scale, delay):
+	return reward_scale[1] * delay
+
+def est_reward(estsize, size_time, thread_time, reward_scale, cores):
+
+	multi_thread_time = est_time(estsize, size_time, thread_time, cores)
+	return reward_scale[1] * (reward_scale[0] - multi_thread_time)
+
+def est_time(estsize, size_time, thread_time, cores):
+	
+	single_thread_time = size_time[0] + (size_time[1] * estsize)
+	return ((1 - thread_time) + (thread_time / cores)) * single_thread_time
+
+def core_choices(max):
+
+	choices = [max]
+	# Round down to power of 2:
+	lg = math.log(max, 2)
+	flg = math.floor(lg)
+	if flg == lg:
+		flg = lg - 1
+	cores = int(math.pow(2, flg))
+	while cores >= 1:
+		choices.append(cores)
+		cores /= 2
+	return choices
 
 class Worker:
 
@@ -40,11 +68,12 @@ class Worker:
 
 class Task:
 
-	def __init__(self, cmd, pid, classname, maxcores, mempercore, sched):
+	def __init__(self, cmd, pid, classname, maxcores, mempercore, estsize, sched):
 		self.cmd = cmd
                 self.pid = pid
 		self.maxcores = maxcores
 		self.mempercore = mempercore
+		self.estsize = estsize
 		self.proc = None
 		self.worker = None
                 self.start_time = None
@@ -117,6 +146,7 @@ class SubmitUI:
 <p>Class: %s</p>
 <p>Max cores: <input name="maxcores"/></p>
 <p>Memory per core: <input name="mempercore"/></p>
+<p>Estimated job size: <input name="estsize"/></p>
 </td></tr>
 <tr><td><input type="submit"/></td></tr></table></p>
 </form></body></html>""" % (self.mktemplatecombo(), self.mkclasscombo())
@@ -126,12 +156,12 @@ class MulticlassScheduler:
         def __init__(self, httpqueue, classfile, classargs):
 
 		self.resource_script_path = "/home/user/csmowton/scan/getres.py"
-		self.worker_login_username = "user"
+		self.worker_login_username = "csmowton"
 
                 if classfile is not None:
                         self.classes = imp.load_source("user_classes_module", classfile).getclasses(**classargs)
                 else:
-			self.classes = {"linux": {"lastwph": 0, "description": "Generic Linux tasks"} }
+			self.classes = {"linux": {"lastwph": 0, "description": "Generic Linux tasks", "time_reward": None, "size_time": None, "thread_time": None} }
 
 		self.taskqueue = []
 		self.httpqueue = httpqueue
@@ -149,8 +179,16 @@ class MulticlassScheduler:
                 self.httpqueue = httpqueue
                 self.lock = threading.Lock()
 
+		self.scale_reward_loss = 0.0
+		self.queue_reward_loss = 0.0
+
+		# Adaptive scale selection parameters:
+		self.new_worker_wait_time = 0.1 # Unit: hours
+		self.worker_pool_size_threshold = 100
+		self.worker_pool_oversize_penalty = 10
+
         @cherrypy.expose
-        def addworkitem_ui(self, template, templateinputs, classname, script, maxcores, mempercore):
+        def addworkitem_ui(self, template, templateinputs, classname, script, maxcores, mempercore, estsize):
 
                 try:
 
@@ -179,7 +217,7 @@ class MulticlassScheduler:
                         pids = []
 
                         for s in scripts:
-                                ret = self.default(callname="addworkitem", classname=classname, cmd=s, set_ct=False, maxcores = maxcores, mempercore = mempercore)
+                                ret = self.default(callname="addworkitem", classname=classname, cmd=s, set_ct=False, maxcores = maxcores, mempercore = mempercore, estsize = estsize)
                                 pids.append(json.loads(ret)["pid"])
                               
                         return "<html><body><p>Created PIDs %s</p></body></html>" % ", ".join([str(p) for p in pids])
@@ -225,24 +263,128 @@ class MulticlassScheduler:
 		will_use_cores = None
 		best_worker = None
 
+		reward_scale = self.classes[proc.classname]["time_reward"]
+		if reward_scale is None:
+			# No reward scale given; try to grab as many cores as the process type can use
+			maxcores = proc.maxcores
+		else:
+			size_time = self.classes[proc.classname]["size_time"]
+			thread_time = self.classes[proc.classname]["thread_time"]
+			assert(size_time is not None and thread_time is not None)
+
+			nthreads_choices = core_choices(proc.maxcores)
+			reward_choices = {c: est_reward(proc.estsize, size_time, thread_time, reward_scale, c) for c in nthreads_choices}
+		
+			slots_available = {c: 0 for c in nthreads_choices}
+
+			for w in self.workers.itervalues():
+
+				if w.delete_pending or w.fully_occupied():
+					continue
+
+				this_w_cores = min(w.free_cores, w.free_memory / proc.mempercore)
+				for c in nthreads_choices:
+					slots_available[c] += (this_w_cores / c)
+
+			# Approximation: assume the current set of running processes represents the expected rate of cores
+			# becoming free again.
+			
+			running_procs = []
+			for w in self.workers.itervalues():
+				running_procs.extend(w.running_processes)
+
+			allocated_cores = sum(p.run_attributes["cores"] for p in running_procs)
+			finish_times = sorted(p.expected_finish_time for p in running_procs)
+			
+			if allocated_cores > 0 and len(finish_times) > 1:
+				finish_rate = allocated_cores / (finish_times[-1] - finish_times[0]).total_seconds()
+			else:
+				finish_rate = 1.0 # Shrug!
+
+			for (cores, slots) in slots_available.iteritems():
+
+				# Approximation: assuming the other processes in the queue
+				# have similar reward tradeoffs as this one.
+				if slots < len(self.pending):
+
+					penalised_procs = len(self.pending) - slots
+					slot_recovery_rate = (finish_rate / (60 * 60)) / cores
+
+					# We could wait for workers to become free...
+					loss_per_proc_waiting = reward_loss(reward_scale, slot_recovery_rate * (penalised_procs / 2))
+					total_loss_waiting = loss_per_proc_waiting * penalised_procs
+					
+					# Alternatively we could hire to get out of trouble. Factor in assumed lag:
+					loss_per_proc_hiring = reward_loss(reward_scale, self.new_worker_wait_time)
+					total_loss_hiring = loss_per_proc_hiring * penalised_procs
+
+					total_cores_now = sum(w.cores for w in self.workers.itervalues())
+					excess_cores = self.worker_pool_size_threshold - (total_cores_now + (penalised_procs * cores))
+					if excess_cores > 0:
+						total_loss_hiring += (self.worker_pool_oversize_penalty * excess_cores)
+
+					reward_choices[cores] -= total_loss_hiring
+					
+			maxcores, ignored = max(reward_choices.iteritems(), key = lambda x: x[1])
+
 		for w in self.workers.itervalues():
 
 			if w.delete_pending or w.fully_occupied():
 				continue
 
-			this_w_cores = min(proc.maxcores, w.free_cores, w.free_memory / proc.mempercore)
+			this_w_cores = min(maxcores, w.free_cores, w.free_memory / proc.mempercore)
 			if best_worker is None or this_w_cores > will_use_cores:
 				best_worker = w
 				will_use_cores = this_w_cores
-				if will_use_cores == proc.maxcores:
+				if will_use_cores == maxcores:
 					break
+
+		if reward_scale is not None and best_worker is not None:
+			
+			evaluated_cores = sorted(reward_choices.iterkeys())
+			for c1, c2 in zip(evaluated_cores[:-1], evaluated_cores[1:]):
+
+				for i in range(c1 + 1, c2):
+
+					c1_prop = float(i - c1) / float(c2 - c1)
+					c2_prop = 1 - c1_prop
+					reward_choices[i] = (c1_prop * reward_choices[c1]) + (c2_prop * reward_choices[c2])
+
+			# Loss incurred for running on a smaller worker than we'd like:
+			scale_reward_loss = max(reward_choices.itervalues()) - reward_choices[will_use_cores]
+			est_finish_time = est_time(proc.estsize, size_time, thread_time, will_use_cores)
+
+			# Loss incurred for queueing:
+			queue_reward_loss = reward_loss(reward_scale, (proc.queue_time - datetime.datetime.now()).total_seconds() / (60 * 60))
+
+		else:
+
+			scale_reward_loss = 0
+			queue_reward_loss = 0
+			est_finish_time = 1 # Shrug!
 
 		if best_worker is None:
 			run_attr = None
 		else:
 			run_attr = {"cores": will_use_cores, "memory": proc.mempercore * will_use_cores}
 
-		return run_attr, best_worker
+		return run_attr, best_worker, scale_reward_loss, queue_reward_loss, est_finish_time
+
+	def update_worker_resource_stats(self, worker):
+
+		idle_cores_prop = str(float(worker.free_cores) / worker.cores)
+		idle_mem_prop = str(float(worker.free_memory) / worker.memory)
+
+		attrs = [(idle_cores_prop, "idle_cores"),
+			 (idle_mem_prop, "idle_mem")]
+
+		commands = ["echo %s > /tmp/scan_%s.new; mv /tmp/scan_%s.new /tmp/scan_%s" % (val, key, key, key) for (val, key) in attrs]
+
+		composite_command = "; ".join(commands)
+		
+		cmdline = self.getrunner(worker)
+		cmdline.append(composite_command)
+		subprocess.check_call(cmdline)
 
         def trystartproc(self):
 
@@ -251,11 +393,12 @@ class MulticlassScheduler:
                         
                 np = self.pending[0]
 
-		run_attributes, run_worker = self.select_run_attributes(np)
+		run_attributes, run_worker, scale_reward_loss, queue_reward_loss, est_finish_time = self.select_run_attributes(np)
 		if run_worker is None:
 			return False
 
 		np.run_attributes = run_attributes
+		np.expected_finish_time = est_finish_time
 
                 cmdline = self.getrunner(run_worker)
 
@@ -279,6 +422,12 @@ class MulticlassScheduler:
 		run_worker.running_processes.append(np)
                 np.start_time = datetime.datetime.now()
                 self.pending.pop(0)
+
+		self.update_worker_resource_stats(np.worker)
+
+		# Accounting: reward lost due to queueing and suboptimal worker assignment:
+		self.scale_reward_loss += scale_reward_loss
+		self.queue_reward_loss += queue_reward_loss
 
                 return True
 
@@ -330,6 +479,8 @@ class MulticlassScheduler:
 				freed_worker.free_memory += rp.run_attributes["memory"]
 				freed_worker.running_processes.remove(rp)
 
+				self.update_worker_resource_stats(freed_worker)
+
 				if ret == 0:
 
 	                                try:
@@ -362,6 +513,7 @@ class MulticlassScheduler:
 						print "Queueing for retry", rp.failures
 						rp.worker = None
 						rp.proc = None
+						rp.queue_time = datetime.datetime.now()
 						self.pending.append(rp)
 
                                 if freed_worker.delete_pending:
@@ -375,17 +527,19 @@ class MulticlassScheduler:
 
 			return json.dumps({"pid": pid, "retcode": ret})
 
-        def addworkitem(self, cmd, classname, maxcores, mempercore):
+        def addworkitem(self, cmd, classname, maxcores, mempercore, estsize):
 
 		mempercore = int(mempercore)
 		maxcores = int(maxcores)
+		estsize = float(estsize)
 
 		with self.lock:
 
 			newpid = self.nextpid
-			newproc = Task(cmd, newpid, classname, maxcores, mempercore, self)
+			newproc = Task(cmd, newpid, classname, maxcores, mempercore, estsize, self)
 			self.nextpid += 1
 			self.procs[newpid] = newproc
+			newproc.queue_time = datetime.datetime.now()
 			self.pending.append(newproc)
                         print "Queue work item", newpid, cmd
 			self.trystartprocs()
@@ -514,6 +668,12 @@ class MulticlassScheduler:
 
         def getwph(self, classname):
                 return str(self.classes[classname]["lastwph"])
+
+	def getqueuerewardloss(self):
+		return str(self.queue_reward_loss)
+
+	def getscalerewardloss(self):
+		return str(self.scale_reward_loss)
 
 class HttpQueue:
 
