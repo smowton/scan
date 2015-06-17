@@ -56,11 +56,19 @@ public class ScanWorkerProbe extends Probe{
 		
 	}
 
+	private double getDiskFreeProp() throws IOException {
+	
+		File fs = new File("/mnt/scanfs");
+		return ((double)fs.getFreeSpace()) / fs.getTotalSpace();
+	    
+	}	
+
 	public ScanWorkerProbe(String name, int freq) throws Exception {
 
 		super(name, freq);
 		this.addProbeProperty(0, "idleCoresProp", ProbePropertyType.DOUBLE,"", "Proportion of cores idle");
-		this.addProbeProperty(0, "idleMemProp", ProbePropertyType.DOUBLE,"", "Proportion of memory idle");
+		this.addProbeProperty(1, "idleMemProp", ProbePropertyType.DOUBLE,"", "Proportion of memory idle");
+		this.addProbeProperty(2, "freeDiskProp", ProbePropertyType.DOUBLE, "", "Proportion of scratch disk free");
 
 	}
 	
@@ -73,6 +81,7 @@ public class ScanWorkerProbe extends Probe{
 		HashMap<Integer,Object> values = new HashMap<Integer,Object>();
 		values.put(0, doubleFromFile("/tmp/scan_idle_cores", 0));
 		values.put(1, doubleFromFile("/tmp/scan_idle_mem", 0));
+		values.put(2, getDiskFreeProp());
 		return new ProbeMetric(values);
 
 	}
