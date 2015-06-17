@@ -22,7 +22,7 @@ if not os.path.exists(mountpoint):
             raise e
 
     subprocess.check_call(["/sbin/mkfs.btrfs", "-d", "single", devname])
-    subprocess.check_call(["/sbin/mount", devname, mountpoint])
+    subprocess.check_call(["/bin/mount", devname, mountpoint])
 
 else:
     
