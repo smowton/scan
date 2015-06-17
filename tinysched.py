@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
 import cherrypy
 import threading
@@ -253,7 +253,7 @@ class MulticlassScheduler:
 
         @cherrypy.expose
         def getclasses(self):
-                return json.dumps([x["name"] for x in self.classes])
+                return json.dumps(self.classes.keys())
 
         @cherrypy.expose
         def ping(self, echo):
