@@ -47,6 +47,13 @@ def core_choices(max):
 		cores /= 2
 	return choices
 
+def print_dt(dt):
+
+	if dt.date() == datetime.date.today():
+		return dt.strftime("%H:%M:%S")
+	else:
+		return dt.strftime("%Y-%m-%d %H:%M:%S")
+
 class Worker:
 
 	def __init__(self, address, wid, totalcores, totalmemory):
@@ -263,9 +270,12 @@ class MulticlassScheduler:
 		will_use_cores = None
 		best_worker = None
 
+		report = []
+
 		reward_scale = self.classes[proc.classname]["time_reward"]
 		if reward_scale is None:
 			# No reward scale given; try to grab as many cores as the process type can use
+			report.append("Class " + proc.classname + " gives no profiling parameters: try for " + str(proc.maxcores) + " cores")
 			maxcores = proc.maxcores
 		else:
 			size_time = self.classes[proc.classname]["size_time"]
@@ -274,6 +284,8 @@ class MulticlassScheduler:
 
 			nthreads_choices = core_choices(proc.maxcores)
 			reward_choices = {c: est_reward(proc.estsize, size_time, thread_time, reward_scale, c) for c in nthreads_choices}
+
+			report.append("Estimated core -> rewards " + ", ".join("%d -> %g" % x for x in reward_choices.iteritems()))
 		
 			slots_available = {c: 0 for c in nthreads_choices}
 
@@ -288,6 +300,8 @@ class MulticlassScheduler:
 
 			# Approximation: assume the current set of running processes represents the expected rate of cores
 			# becoming free again.
+					
+			report.append("Slots available " + ", ".join("%d -> %d" % x for x in slots_available.iteritems()))
 			
 			running_procs = []
 			for w in self.workers.itervalues():
@@ -299,7 +313,9 @@ class MulticlassScheduler:
 			if allocated_cores > 0 and len(finish_times) > 1:
 				finish_rate = allocated_cores / (finish_times[-1] - finish_times[0]).total_seconds()
 			else:
-				finish_rate = 1.0 # Shrug!
+				finish_rate = float(1) / 3600 # Shrug! One every hour?
+
+			report.append("Expected finish rate: " + str(finish_rate * (60 * 60)) + " cores/hr")
 
 			for (cores, slots) in slots_available.iteritems():
 
@@ -307,25 +323,35 @@ class MulticlassScheduler:
 				# have similar reward tradeoffs as this one.
 				if slots < len(self.pending):
 
+					report.append("Resource shortage if queued processes use " + str(cores) + (" cores (%d in queue; %d slots available)" % (len(self.pending), slots)))
+
 					penalised_procs = len(self.pending) - slots
-					slot_recovery_rate = (finish_rate / (60 * 60)) / cores
+					slot_recovery_rate = (finish_rate * (60 * 60)) / cores
 
 					# We could wait for workers to become free...
-					loss_per_proc_waiting = reward_loss(reward_scale, slot_recovery_rate * (penalised_procs / 2))
+					loss_per_proc_waiting = reward_loss(reward_scale, slot_recovery_rate * (float(penalised_procs) / 2))
 					total_loss_waiting = loss_per_proc_waiting * penalised_procs
-					
+
+					report.append("Reward loss due to waiting: " + str(total_loss_waiting) + " (slots become free every " + str(slot_recovery_rate) + " hours)")
+				
 					# Alternatively we could hire to get out of trouble. Factor in assumed lag:
 					loss_per_proc_hiring = reward_loss(reward_scale, self.new_worker_wait_time)
 					total_loss_hiring = loss_per_proc_hiring * penalised_procs
 
-					total_cores_now = sum(w.cores for w in self.workers.itervalues())
-					excess_cores = self.worker_pool_size_threshold - (total_cores_now + (penalised_procs * cores))
-					if excess_cores > 0:
-						total_loss_hiring += (self.worker_pool_oversize_penalty * excess_cores)
+					report.append("Reward loss due to hiring: " + str(total_loss_hiring) + " (hiring new workers takes " + str(self.new_worker_wait_time) + " hours)")
 
-					reward_choices[cores] -= total_loss_hiring
+					total_cores_now = sum(w.cores for w in self.workers.itervalues())
+					excess_cores = (total_cores_now + (penalised_procs * cores)) - self.worker_pool_size_threshold
+					if excess_cores > 0:
+						
+						extra_penalty = (self.worker_pool_oversize_penalty * excess_cores)
+						report.append("Extra penalty due to hiring " + str(excess_cores) + " excess cores: " + str(extra_penalty))
+						total_loss_hiring += extra_penalty
+
+					reward_choices[cores] -= min(total_loss_hiring, total_loss_waiting)
 					
 			maxcores, ignored = max(reward_choices.iteritems(), key = lambda x: x[1])
+			report.append("Setting max cores to assign: " + str(maxcores))
 
 		for w in self.workers.itervalues():
 
@@ -339,6 +365,8 @@ class MulticlassScheduler:
 				if will_use_cores == maxcores:
 					break
 
+		report.append("Selected worker " + w.address + " / " + str(w.wid) + " with " + str(will_use_cores) + " cores")
+
 		if reward_scale is not None and best_worker is not None:
 			
 			evaluated_cores = sorted(reward_choices.iterkeys())
@@ -350,23 +378,32 @@ class MulticlassScheduler:
 					c2_prop = 1 - c1_prop
 					reward_choices[i] = (c1_prop * reward_choices[c1]) + (c2_prop * reward_choices[c2])
 
-			# Loss incurred for running on a smaller worker than we'd like:
+			# Loss incurred for running on a smaller worker than we'd like.
 			scale_reward_loss = max(reward_choices.itervalues()) - reward_choices[will_use_cores]
 			est_finish_time = est_time(proc.estsize, size_time, thread_time, will_use_cores)
 
+			report.append("Loss incurred due to available slot scale: " + str(scale_reward_loss))
+
 			# Loss incurred for queueing:
-			queue_reward_loss = reward_loss(reward_scale, (proc.queue_time - datetime.datetime.now()).total_seconds() / (60 * 60))
+			queue_reward_loss = reward_loss(reward_scale, (datetime.datetime.now() - proc.queue_time).total_seconds() / (60 * 60))
+
+			report.append("Loss incurred due to queueing: " + str(queue_reward_loss))
+
+			report.append("Estimated finish time: " + print_dt(datetime.datetime.now() + datetime.timedelta(seconds = est_finish_time)))
 
 		else:
 
 			scale_reward_loss = 0
 			queue_reward_loss = 0
-			est_finish_time = 1 # Shrug!
+			est_finish_time = datetime.datetime.now() + datetime.timedelta(hours=1) # Shrug!
 
 		if best_worker is None:
 			run_attr = None
 		else:
 			run_attr = {"cores": will_use_cores, "memory": proc.mempercore * will_use_cores}
+
+		if best_worker is not None:
+			print "\n".join(report)
 
 		return run_attr, best_worker, scale_reward_loss, queue_reward_loss, est_finish_time
 
