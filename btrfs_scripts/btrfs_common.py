@@ -1,0 +1,2 @@
+
+mountpoint = "/mnt/scanfs"
