@@ -53,19 +53,19 @@ public class ScanProbe extends Probe{
 
 		}
 			
-		int idx = 0;
-			
+		this.addProbeProperty(0, "queueLength",ProbePropertyType.LONG,"", "queue length");
+		this.addProbeProperty(1, "avgCpuUsage", ProbePropertyType.DOUBLE, "", "average task CPU usage");
+		this.addProbeProperty(2, "avgMemoryUsage", ProbePropertyType.DOUBLE, "", "average task memory usage");
+		this.addProbeProperty(3, "workerUtilisation", ProbePropertyType.DOUBLE, "", "worker pool utilisation (1 = all active, 0 = all idle)");
+		this.addProbeProperty(4, "rewardLostToQueueing", ProbePropertyType.DOUBLE, "", "reward lost due to tasks queueing");
+		this.addProbeProperty(5, "rewardLostToSmallWorkers", ProbePropertyType.DOUBLE, "", "reward lost due to workers unable to offer sufficient local parallelism");
+		
+		int idx = 6;
+
 		for(String c : classes) {
 
-			this.addProbeProperty(idx + 0, c + "_queueLength",ProbePropertyType.LONG,"", c + " queue length");
 			this.addProbeProperty(idx + 1, c + "_workPerHour",ProbePropertyType.DOUBLE,"", c + " work units per hour");
-			this.addProbeProperty(idx + 2, c + "_avgCpuUsage", ProbePropertyType.DOUBLE, "", c + " average task CPU usage");
-			this.addProbeProperty(idx + 3, c + "_avgMemoryUsage", ProbePropertyType.DOUBLE, "", c + " average task memory usage");
-			this.addProbeProperty(idx + 4, c + "_workerUtilisation", ProbePropertyType.DOUBLE, "", c + " worker pool utilisation (1 = all active, 0 = all idle)");
-			this.addProbeProperty(idx + 5, c + "_rewardLostToQueueing", ProbePropertyType.DOUBLE, "", c + " reward lost due to tasks queueing");
-			this.addProbeProperty(idx + 6, c + "_rewardLostToSmallWorkers", ProbePropertyType.DOUBLE, "", c + " reward lost due to workers unable to offer sufficient local parallelism");
-
-			idx += 7;
+			idx++;
 
 		}
 	}
@@ -99,9 +99,9 @@ public class ScanProbe extends Probe{
 
 	}
 
-	private long getQueueLength(String c) throws MalformedURLException, IOException {
+	private long getQueueLength() throws MalformedURLException, IOException {
 
-		InputStream is = getStream("lsprocs?classname=" + c);
+		InputStream is = getStream("lsprocs");
 		JSONTokener tok = new JSONTokener(is);
 		JSONObject a = new JSONObject(tok);
 		long ret = 0;
@@ -119,9 +119,9 @@ public class ScanProbe extends Probe{
 
 	}
 
-	private double getWorkerUtilisation(String c) throws MalformedURLException, IOException {
+	private double getWorkerUtilisation() throws MalformedURLException, IOException {
 
-		InputStream is = getStream("lsworkers?classname=" + c);
+		InputStream is = getStream("lsworkers");
 		JSONTokener tok = new JSONTokener(is);
 		JSONObject a = new JSONObject(tok);
 		long totalWorkers = a.length();
@@ -149,58 +149,43 @@ public class ScanProbe extends Probe{
 
 	}
 
-	private double getRewardLossToQueueing(String c) throws MalformedURLException, IOException {
+	private double getRewardLossToQueueing() throws MalformedURLException, IOException {
 
-		String v = getString("getqueuerewardloss?classname=" + c);
+		String v = getString("getqueuerewardloss");
 		return Double.parseDouble(v);		
 
 	}	
 
-	private double getRewardLossToSmallWorkers(String c) throws MalformedURLException, IOException {
+	private double getRewardLossToSmallWorkers() throws MalformedURLException, IOException {
 
-		String v = getString("getscalerewardloss?classname=" + c);
+		String v = getString("getscalerewardloss");
 		return Double.parseDouble(v);		
 
 	}	
-
-	private void getResourceUsage(HashMap<Integer, Object> values, String c, int offset) throws MalformedURLException, IOException {
-
-//		InputStream is = getStream("getresusage?classname=" + c);
-//		JSONTokener tok = new JSONTokener(is);
-//		JSONObject stats = new JSONObject(tok);
-//		values.put(offset + 2, stats.getDouble("cpu"));
-//		values.put(offset + 3, stats.getDouble("mem"));
-//		is.close();
-		values.put(offset + 2, 0.0);
-		values.put(offset + 3, 0.0);
-
-	}
 
 	public ProbeMetric collectOrThrow() throws Exception {
 
 		HashMap<Integer,Object> values = new HashMap<Integer,Object>();
 		
+		long qlen = getQueueLength();
+		double ut = getWorkerUtilisation();
+		double queueLoss = getRewardLossToQueueing();
+		double scaleLoss = getRewardLossToSmallWorkers();
+
+		values.put(0, qlen);
+		values.put(1, (double)0);
+		values.put(2, (double)0);
+		values.put(3, ut);
+		values.put(4, queueLoss);
+		values.put(5, scaleLoss);
+
 		int offset = 0;
-
+			
 		for(String c : classes) {
-		
-			long qlen = getQueueLength(c);
-			double ut = getWorkerUtilisation(c);
+	
 			double wph = getWorkPerHour(c);
-			double queueLoss = getRewardLossToQueueing(c);
-			double scaleLoss = getRewardLossToSmallWorkers(c);
-		
-			values.put(offset + 0, qlen);
-			values.put(offset + 1, wph);
-			values.put(offset + 4, ut);
-			values.put(offset + 5, queueLoss);
-			values.put(offset + 6, scaleLoss);
-
-			System.out.printf("Qlen: %d, wph: %g, utilisation: %g\n", qlen, wph, ut);
-
-			getResourceUsage(values, c, offset);
-
-			offset += 5;
+			values.put(offset, wph);
+			offset++;
 
 		}
 				
