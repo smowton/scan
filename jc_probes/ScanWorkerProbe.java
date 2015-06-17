@@ -1,4 +1,5 @@
 
+import java.util.Map;
 import java.util.HashMap;
 import java.util.Random;
 import java.util.List;
@@ -97,7 +98,7 @@ public class ScanWorkerProbe extends Probe{
 		if(verbose) {
 			Iterator it = values.entrySet().iterator();
 			while (it.hasNext()) {
-				HashMap.Entry pair = (HashMap.Entry)it.next();
+				Map.Entry pair = (Map.Entry)it.next();
 				System.out.println(pair.getKey() + " = " + pair.getValue());
 			}
 		}
