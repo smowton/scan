@@ -101,64 +101,69 @@ class SimState:
                 stage_times = config_stage_times(config)
                 return [stage_time * cores for (stage_time, cores) in zip(stage_times, config)]
 
-            def predict_config_reward_ratio(config):
+            def predict_config_reward_profit(config):
                 stage_times = config_stage_times(config)
                 core_time_units = stage_core_time_units(config)
                 total_cost = params.core_cost_tiers[0]["cost"] * sum(core_time_units)
                 total_reward = params.reward(sum(stage_times) * self.vscale_params["queuefactor"], self.arrival_process.mean_records)
-                return float(total_reward) / total_cost
+                return float(total_reward) - total_cost
 
             def config_average_cores(config):
                 total_time = sum(config_stage_times(config))
                 total_core_time_units = sum(stage_core_time_units(config))
                 return float(total_core_time_units / total_time)
 
-            all_config_ratios = [(config, predict_config_reward_ratio(config)) for config in itertools.product(params.dynamic_core_choices, repeat = 7)]
-            all_config_ratios = sorted(all_config_ratios, key = lambda (config, reward) : reward)
+            all_config_profits = [(config, predict_config_reward_profit(config)) for config in itertools.product(params.dynamic_core_choices, repeat = 7)]
+            all_config_profits = sorted(all_config_profits, key = lambda (config, reward) : reward)
+
+            if self.debug:
+                print "Dump all configs:"
+                for (config, profit) in all_config_profits:
+                    print config, profit
 
             # Never consider any options that are less rewarding than running everything single-threaded
-            min_ratio = predict_config_reward_ratio([1,1,1,1,1,1,1])
-            all_config_ratios = [(config, ratio) for (config, ratio) in all_config_ratios if ratio >= min_ratio]
+            min_profit = predict_config_reward_profit([1,1,1,1,1,1,1])
+            all_config_profits = [(config, profit) for (config, profit) in all_config_profits if profit >= min_profit]
 
-            def make_monotonic(config_ratios):
+            def make_monotonic(config_profits):
 
                 # Discard any candidate configuration that uses more core-hours whilst delivering lesser rewards
-                kept_config_ratios = []
-                for i in range(1, len(config_ratios) + 1):
-                    (config, ratio) = config_ratios[-i]
-                    if len(kept_config_ratios) == 0:
-                        kept_config_ratios.append((config, ratio))
-                    elif sum(stage_core_time_units(config)) < sum(stage_core_time_units(kept_config_ratios[-1][0])):
-                        kept_config_ratios.append((config, ratio))
+                kept_config_profits = []
+                for i in range(1, len(config_profits) + 1):
+                    (config, profit) = config_profits[-i]
+                    if len(kept_config_profits) == 0:
+                        kept_config_profits.append((config, profit))
+                    elif sum(stage_core_time_units(config)) < sum(stage_core_time_units(kept_config_profits[-1][0])):
+                        kept_config_profits.append((config, profit))
 
-                kept_config_ratios.reverse()
-                return kept_config_ratios
+                kept_config_profits.reverse()
+                return kept_config_profits
 
             if self.vscale_algorithm == "longterm":
 
-                all_config_ratios = make_monotonic(all_config_ratios)
+                all_config_profits = make_monotonic(all_config_profits)
 
                 self.candidate_configs = []
-                candidate_ratios = []
+                candidate_profits = []
 
-                if len(all_config_ratios) > 10:
+                if len(all_config_profits) > 10:
                     for i in range(10):
-                        idx = int(round((float(i) / 9) * (len(all_config_ratios) - 1)))
-                        config = all_config_ratios[idx][0]
+                        idx = int(round((float(i) / 9) * (len(all_config_profits) - 1)))
+                        config = all_config_profits[idx][0]
                         self.candidate_configs.append((config, config_average_cores(config)))
-                        candidate_ratios.append(all_config_ratios[idx][1])
+                        candidate_profits.append(all_config_profits[idx][1])
                 else:
-                    self.candidate_configs = [(config, config_average_cores(config)) for (config, ratio) in all_config_ratios]
-                    candidate_ratios = [ratio for (config, ratio) in all_config_ratios]
+                    self.candidate_configs = [(config, config_average_cores(config)) for (config, profit) in all_config_profits]
+                    candidate_profits = [profit for (config, profit) in all_config_profits]
 
                 if self.debug:
-                    print "Using longterm configs (best ratio %g, min ratio %g):" % (all_config_ratios[-1][1], min_ratio)
-                    for ((config, average_cores), ratio) in zip(self.candidate_configs, candidate_ratios):
-                        print config, "avg", average_cores, "ratio", ratio
+                    print "Using longterm configs (best profit %g, min profit %g):" % (all_config_profits[-1][1], min_profit)
+                    for ((config, average_cores), profit) in zip(self.candidate_configs, candidate_profits):
+                        print config, "avg", average_cores, "profit", profit
 
             else:
                 
-                # For adaptivelt operation we try to use the best possible execution plan,
+                # For adaptivelt opeprofitn we try to use the best possible execution plan,
                 # then fall back if current workload forces us to retreat from our full planned resource usage.
 
                 def isprefix(pref, full):
@@ -188,7 +193,7 @@ class SimState:
                                     print " " * len(past_phases), "If forced to fall back to", fallback_cores, "cores, use:"
                             populate_fallbacks_from(present_phases, possible_configs)
 
-                populate_fallbacks_from([], [c for (c, r) in all_config_ratios])
+                populate_fallbacks_from([], [c for (c, r) in all_config_profits])
 
                 if self.debug:
                     for (k, v) in self.ltadaptive_plans.iteritems():
@@ -739,6 +744,8 @@ class SimState:
                 print "Transfer for", split, "queued, expected to complete at", split.transfer_finish_time
 
     def start_transfer(self, split, tosite):
+        if split.transfer_start_time != self.now:
+            raise Exception("Annotated transfer start time %s vs now %s" % (split.transfer_start_time, self.now))
         self.active_transfers[tosite] = split
         end_event = TransferDoneEvent(split)
         heappush(self.event_queue, (split.transfer_finish_time, end_event))        
@@ -824,6 +831,7 @@ class JobSplit:
         self.split_start_time = state.now
         if params.inter_site_data_rate is not None and runsite != self.stage.job.current_data_site:
             transfer_time = params.data_transfer_time(self.stage.job.nrecords)
+            self.transfer_start_time = state.next_transfer_start_time(runsite)
             self.transfer_finish_time = state.next_transfer_start_time(runsite) + transfer_time
         else:
             transfer_time = 0.0

@@ -75,7 +75,7 @@ if __name__ == "__main__":
 
     for arg in sys.argv[1:]:
 
-        arg = arg.split("=")
+        arg = arg.split("=", 1)
         if len(arg) != 2:
             raise Exception("Bad argument %s" % arg)
 

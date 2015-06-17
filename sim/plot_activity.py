@@ -70,7 +70,7 @@ if len(cores_points[0]) > 1000:
 plots = []
 
 if len(jobs_points) == 1:
-    phase_titles = ["Active analysis tasks"]
+    phase_titles = ["Active analysis stages or cores over simulation period"]
 elif len(jobs_points) == 3:
     phase_titles = ["Active analysis tasks",
                     "Queued transfers public -> private",
@@ -93,5 +93,5 @@ for (core_points, job_points, times, title) in zip(cores_points, jobs_points, se
         series.append((times, core_points))
     plots.append((title, series))
 
-ccgrid_graphing.stackplot.draw_stackplot(plots, xlabel = "Sim time elapsed (minutes)", ylabel = "Active jobs or cores", save_file = save_file)
+ccgrid_graphing.stackplot.draw_stackplot(plots, xlabel = "Sim time elapsed (TUs)", ylabel = "Active stages or cores", save_file = save_file)
 
