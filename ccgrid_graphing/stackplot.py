@@ -5,16 +5,17 @@
 import matplotlib
 import matplotlib.pyplot as plt
 
-matplotlib.rcParams['font.size'] = 8
+#matplotlib.rcParams['font.size'] = 8
 
 series_colours = ['k', 'red']
-series_markers = [' ', '|']
+series_markers = [' ', ' ']
+series_names = ["Stages", "Cores"]
 
 def draw_stackplot(plots, xlabel, ylabel, save_file = None):
 
     plotheight = 2 if len(plots) == 1 else len(plots)
 
-    fig = plt.figure(figsize = (4, plotheight))
+    fig = plt.figure(figsize = (8, 4))
 
     if len(plots) > 1:
 
@@ -37,8 +38,8 @@ def draw_stackplot(plots, xlabel, ylabel, save_file = None):
 
         ax.locator_params(axis='y', nbins=4)
 
-        for ((xs, ys), colour, marker) in zip(plot, series_colours, series_markers):
-            ax.plot(xs, ys, color=colour, marker=marker)
+        for ((xs, ys), colour, marker, label) in zip(plot, series_colours, series_markers, series_names):
+            ax.plot(xs, ys, color=colour, marker=marker, label=label)
 
         if i != len(plots) - 1:
             ax.set_xticklabels([])
@@ -53,6 +54,8 @@ def draw_stackplot(plots, xlabel, ylabel, save_file = None):
         ax.set_ylim(newbottom, newtop)
 
         ax.set_title(title)
+
+        ax.legend(loc = "upper right")
     
     masterax.set_ylabel(ylabel, labelpad = 25)
 
