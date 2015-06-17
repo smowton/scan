@@ -32,6 +32,7 @@ public class ScanWorkerProbe extends Probe{
         private String scanHost;
 	private String scanClass;
 	private int workerId;
+	private boolean verbose;
 
 	private double doubleFromFile(String fname, double def) {
 		
@@ -63,13 +64,23 @@ public class ScanWorkerProbe extends Probe{
 	    
 	}	
 
-	public ScanWorkerProbe(String name, int freq) throws Exception {
+	public void addProps() {
 
-		super(name, freq);
 		this.addProbeProperty(0, "idleCoresProp", ProbePropertyType.DOUBLE,"", "Proportion of cores idle");
 		this.addProbeProperty(1, "idleMemProp", ProbePropertyType.DOUBLE,"", "Proportion of memory idle");
 		this.addProbeProperty(2, "freeDiskProp", ProbePropertyType.DOUBLE, "", "Proportion of scratch disk free");
 
+	}
+
+	public ScanWorkerProbe(String name, int freq) throws Exception {
+		super(name, freq);
+		addProps();
+	}
+
+	public ScanWorkerProbe(boolean verbose) {
+		super(DEFAULT_PROBE_NAME, DEFAULT_SAMPLING_PERIOD);
+		this.verbose = verbose;
+		addProps();
 	}
 	
 	public ScanWorkerProbe() throws Exception {
@@ -82,6 +93,15 @@ public class ScanWorkerProbe extends Probe{
 		values.put(0, doubleFromFile("/tmp/scan_idle_cores", 0));
 		values.put(1, doubleFromFile("/tmp/scan_idle_mem", 0));
 		values.put(2, getDiskFreeProp());
+
+		if(verbose) {
+			Iterator it = values.entrySet().iterator();
+			while (it.hasNext()) {
+				HashMap.Entry pair = (HashMap.Entry)it.next();
+				System.out.println(pair.getKey() + " = " + pair.getValue());
+			}
+		}
+
 		return new ProbeMetric(values);
 
 	}
@@ -106,7 +126,7 @@ public class ScanWorkerProbe extends Probe{
 	
 	public static void main(String[] args) {
 		try {
-			ScanWorkerProbe p = new ScanWorkerProbe();
+			ScanWorkerProbe p = new ScanWorkerProbe(true);
 			p.activate();
 		}
 		catch(Exception e) {
