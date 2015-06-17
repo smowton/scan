@@ -8,6 +8,7 @@ import java.util.Properties;
 import java.net.URL;
 import java.net.MalformedURLException;
 import java.io.File;
+import java.io.FileReader;
 import java.io.FileInputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -32,53 +33,34 @@ public class ScanWorkerProbe extends Probe{
 	private String scanClass;
 	private int workerId;
 
+	private double doubleFromFile(String fname, double def) {
+		
+		try {
+			FileReader fr = new FileReader(fname);
+			StringWriter sw = new StringWriter();
+
+			char[] buf = new char[4096];
+		
+			int lastRead;
+
+			while((lastRead = fr.read(buf, 0, 4096)) != -1)
+				sw.write(buf, 0, lastRead);
+
+			fr.close();
+			sw.close();
+			return Double.parseDouble(sw.toString());
+		}
+		catch(IOException e) {
+			return def;
+		}
+		
+	}
+
 	public ScanWorkerProbe(String name, int freq) throws Exception {
 
 		super(name, freq);
-		this.addProbeProperty(0, "busy", ProbePropertyType.INTEGER, "", "Is this worker running a SCAN job?");
-
-		// TODO remove this hack when there's a good way to find the agent directory
-		String agentPath = "";
-		try {
-		    BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream("/etc/scan_probe")));
-		    agentPath = br.readLine().trim();
-		}
-		catch(Exception e) {
-		    System.err.println("No /etc/scan_probe found; using cwd");
-		    agentPath = ".";
-		}
-
-		Properties p = new Properties();
-		FileInputStream fis = null;
-		try {
-		    fis = new FileInputStream(agentPath + File.separator + "resources" + File.separator + "scanprobe.properties");
-		    p.load(fis);
-		}
-		catch(Exception e) {
-		    throw new Exception("Must provide valid properties file 'scanprobe.properties'");
-		}
-		finally {
-		    if(fis != null)
-			fis.close();
-		}
-
-		scanHost = p.getProperty("host");
-		if(scanHost == null)
-			scanHost = "localhost";
-
-		scanClass = p.getProperty("class");
-		if(scanClass == null)
-			throw new Exception("Must specify proprety 'class'");
-
-		try {
-			workerId = Integer.parseInt(p.getProperty("workerid"));
-		}
-		catch(NumberFormatException e) {
-			throw new Exception("Must specify integer property workerid");
-		}
-		catch(NullPointerException e) {
-			throw new Exception("Must specify integer property workerid");
-		}
+		this.addProbeProperty(0, "idleCoresProp", ProbePropertyType.DOUBLE,"", "Proportion of cores idle");
+		this.addProbeProperty(0, "idleMemProp", ProbePropertyType.DOUBLE,"", "Proportion of memory idle");
 
 	}
 	
@@ -86,58 +68,11 @@ public class ScanWorkerProbe extends Probe{
 		this(DEFAULT_PROBE_NAME, DEFAULT_SAMPLING_PERIOD);
 	}
 
-	private InputStream getStream(String relurl) throws MalformedURLException, IOException {
-
-		String url = String.format("http://%s:%d/%s", scanHost, SCAN_PORT, relurl);
-		return new URL(url).openStream();
-
-	}
-
-	private String getString(String relurl) throws MalformedURLException, IOException {
-
-		InputStream is = getStream(relurl);
-		InputStreamReader isr = new InputStreamReader(is);
-		StringWriter sw = new StringWriter();
-
-		char[] buf = new char[4096];
-		
-		int lastRead;
-
-		while((lastRead = isr.read(buf, 0, 4096)) != -1)
-			sw.write(buf, 0, lastRead);
-
-		isr.close();
-		return sw.toString();
-
-	}
-
-	private int getBusy() throws MalformedURLException, IOException {
-
-		InputStream is = getStream("lsworkers?classname=" + scanClass);
-		JSONTokener tok = new JSONTokener(is);
-		JSONObject a = new JSONObject(tok);
-		long ret = 0;
-
-		boolean busy = false;
-
-		try {
-			busy = a.getJSONObject(((Integer)workerId).toString()).getBoolean("busy");
-			System.out.printf("Worker %s/%d busy: %s\n", scanClass, workerId, ((Boolean)busy).toString());
-		}
-		catch(Exception e) {
-			System.err.println("Warning: unable to determine busy status");
-			e.printStackTrace(System.err);
-		}
-		
-		is.close();
-		return busy ? 1 : 0;
-
-	}
-
 	public ProbeMetric collectOrThrow() throws Exception {
 
 		HashMap<Integer,Object> values = new HashMap<Integer,Object>();
-		values.put(0, getBusy());
+		values.put(0, doubleFromFile("/tmp/scan_idle_cores", 0));
+		values.put(1, doubleFromFile("/tmp/scan_idle_mem", 0));
 		return new ProbeMetric(values);
 
 	}

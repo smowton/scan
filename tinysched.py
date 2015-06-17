@@ -13,35 +13,81 @@ import datetime
 import traceback
 import websupport
 import imp
+import math
 
 import scan_templates
 import integ_analysis.results
 
 runner = ["/usr/bin/ssh", "-o", "StrictHostKeyChecking=no"]
 
+def reward_loss(reward_scale, delay):
+	return reward_scale[1] * delay
+
+def est_reward(estsize, size_time, thread_time, reward_scale, cores):
+
+	multi_thread_time = est_time(estsize, size_time, thread_time, cores)
+	return reward_scale[1] * (reward_scale[0] - multi_thread_time)
+
+def est_time(estsize, size_time, thread_time, cores):
+	
+	single_thread_time = size_time[0] + (size_time[1] * estsize)
+	return ((1 - thread_time) + (thread_time / cores)) * single_thread_time
+
+def core_choices(max):
+
+	choices = [max]
+	# Round down to power of 2:
+	lg = math.log(max, 2)
+	flg = math.floor(lg)
+	if flg == lg:
+		flg = lg - 1
+	cores = int(math.pow(2, flg))
+	while cores >= 1:
+		choices.append(cores)
+		cores /= 2
+	return choices
+
+def print_dt(dt):
+
+	if dt.date() == datetime.date.today():
+		return dt.strftime("%H:%M:%S")
+	else:
+		return dt.strftime("%Y-%m-%d %H:%M:%S")
+
 class Worker:
 
-	def __init__(self, address, hwsv, wid):
+	def __init__(self, address, wid, totalcores, totalmemory):
 		self.address = address
-                self.hwspec_version = hwsv
                 self.wid = wid
-                self.busy = False
+		self.cores = totalcores
+		self.memory = totalmemory
+		self.free_cores = totalcores
+		self.free_memory = totalmemory
+		self.running_processes = []
                 self.delete_pending = False
                 self.delete_pending_callback = None
 
         def to_dict(self):
                 return self.__dict__
 
+	def fully_occupied(self):
+		return self.free_cores == 0
+
 class Task:
 
-	def __init__(self, cmd, pid, sched):
+	def __init__(self, cmd, pid, classname, maxcores, mempercore, estsize, sched):
 		self.cmd = cmd
                 self.pid = pid
+		self.maxcores = maxcores
+		self.mempercore = mempercore
+		self.estsize = estsize
 		self.proc = None
 		self.worker = None
                 self.start_time = None
                 self.sched = sched
+		self.classname = classname
 		self.failures = 0
+		self.run_attributes = None
 
         def to_dict(self):
                 d = copy.copy(self.__dict__)
@@ -65,7 +111,7 @@ class Task:
 
         def getresusage(self):
                 cmd = self.sched.getrunner(self.worker)
-                cmd.append(self.sched.classspec["respath"])
+                cmd.append(self.resource_script_path)
                 cmd.append(self.pidfile())
                 jsstats = json.loads(subprocess.check_output(cmd))
                 if "error" in jsstats:
@@ -87,7 +133,7 @@ class SubmitUI:
                 return websupport.mkcombo("template", [{"name": k, "desc": v["desc"]} for (k, v) in scan_templates.templates().iteritems()])
         
         def mkclasscombo(self):
-                return websupport.mkcombo("classname", [{"name": c["name"], "desc": c["name"]} for c in self.classes])
+                return websupport.mkcombo("classname", [{"name": key, "desc": vals["description"]} for key, vals in self.classes.iteritems()])
 
         @cherrypy.expose
         def index(self):
@@ -105,6 +151,9 @@ class SubmitUI:
 <p>Script:</p>
 <p><textarea name="script" rows="8" cols="40"></textarea></p>
 <p>Class: %s</p>
+<p>Max cores: <input name="maxcores"/></p>
+<p>Memory per core: <input name="mempercore"/></p>
+<p>Estimated job size: <input name="estsize"/></p>
 </td></tr>
 <tr><td><input type="submit"/></td></tr></table></p>
 </form></body></html>""" % (self.mktemplatecombo(), self.mkclasscombo())
@@ -113,31 +162,40 @@ class MulticlassScheduler:
 
         def __init__(self, httpqueue, classfile, classargs):
 
+		self.resource_script_path = "/home/user/csmowton/scan/getres.py"
+		self.worker_login_username = "csmowton"
+
                 if classfile is not None:
                         self.classes = imp.load_source("user_classes_module", classfile).getclasses(**classargs)
                 else:
-                        self.classes = [{"name": "linux",
-                                         "user": "user",
-                                         "respath": "/home/user/csmowton/scan/getres.py",
-                                         "init_hwspec": {
-                                                 "cores": 1,
-                                                 "memory": 4096
-                                         }},
-                                        {"name": "windows",
-                                         "user": "Administrator",
-                                         "respath": "/home/Administrator/getres.py",
-                                         "init_hwspec": {
-                                                 "cores": 1,
-                                                 "memory": 4096}}]
-                self.queues = dict()
-                for c in self.classes:
-                        self.queues[c["name"]] = TinyScheduler(c, httpqueue)
+			self.classes = {"linux": {"lastwph": 0, "description": "Generic Linux tasks", "time_reward": None, "size_time": None, "thread_time": None} }
+
+		self.taskqueue = []
+		self.httpqueue = httpqueue
 
                 self.ui = SubmitUI(self.classes)
                 self.results = integ_analysis.results.ResultViewer()
 
+                self.procs = dict()
+                self.pending = []
+                self.workers = dict()
+                self.nextpid = 0
+                self.nextwid = 0
+                self.callback_address = None
+                self.callback_host = None
+                self.httpqueue = httpqueue
+                self.lock = threading.Lock()
+
+		self.scale_reward_loss = 0.0
+		self.queue_reward_loss = 0.0
+
+		# Adaptive scale selection parameters:
+		self.new_worker_wait_time = 0.1 # Unit: hours
+		self.worker_pool_size_threshold = 100
+		self.worker_pool_oversize_penalty = 10
+
         @cherrypy.expose
-        def addworkitem_ui(self, template, templateinputs, classname, script):
+        def addworkitem_ui(self, template, templateinputs, classname, script, maxcores, mempercore, estsize):
 
                 try:
 
@@ -166,7 +224,7 @@ class MulticlassScheduler:
                         pids = []
 
                         for s in scripts:
-                                ret = self.default(callname="addworkitem", classname=classname, cmd=s, fsreservation=0, dbreservation=0, set_ct=False)
+                                ret = self.default(callname="addworkitem", classname=classname, cmd=s, set_ct=False, maxcores = maxcores, mempercore = mempercore, estsize = estsize)
                                 pids.append(json.loads(ret)["pid"])
                               
                         return "<html><body><p>Created PIDs %s</p></body></html>" % ", ".join([str(p) for p in pids])
@@ -176,20 +234,18 @@ class MulticlassScheduler:
                         return "<html><body><p>Error: %s</p><p>%s</p></body></html>" % (e, traceback.format_exc(e).replace("\n", "<br/>"))
 
         @cherrypy.expose
-        def default(self, callname, classname, **kwargs):
+        def default(self, callname, **kwargs):
                 
                 if "set_ct" not in kwargs:
                         cherrypy.response.headers['Content-Type'] = "application/json"
                 else:
                         del kwargs["set_ct"]
 
-                try:
-                        q = self.queues[classname]
-                except KeyError:
+		if "classname" in kwargs and kwargs["classname"] not in self.classes:
                         return json.dumps({"error": "No such class %s" % classname})
-
+		
                 try:
-                        call = getattr(q, callname)
+                        call = getattr(self, callname)
                 except AttributeError:
                         return json.dumps({"error": "No such method %s" % callname})
 
@@ -203,56 +259,190 @@ class MulticlassScheduler:
         def ping(self, echo):
                 return json.dumps({"echo": echo})
 
-        @cherrypy.expose
-        def lsallprocs(self):
-                class_json = ['"%s": %s' % (k, v.lsprocs()) for k, v in self.queues.iteritems()]
-                return "{" + ", ".join(class_json) + "}"
-
-class TinyScheduler:
- 
-        def __init__(self, classspec, httpqueue):
-                
-                self.procs = dict()
-                self.pending = []
-                self.workers = dict()
-                self.freeworkers = []
-                self.pendingreplacements = []
-                self.pendingremoves = []
-                self.current_hwspec_version = 0
-                self.current_hwspec = {k: str(v) for k, v in classspec["init_hwspec"].iteritems()}
-                self.lastwph = 0
-                self.nextpid = 0
-                self.nextwid = 0
-                self.classspec = classspec
-                self.callback_address = None
-                self.callback_host = None
-                self.httpqueue = httpqueue
-                self.lock = threading.Lock()
-
         def getrunner(self, worker):
                 cmdline = copy.deepcopy(runner)
-                cmdline.append("%s@%s" % (self.classspec["user"], worker.address))
+                cmdline.append("%s@%s" % (self.worker_login_username, worker.address))
                 return cmdline
-                
+
+	# Should return attributes_dict, best_worker                
+	def select_run_attributes(self, proc):
+
+		will_use_cores = None
+		best_worker = None
+
+		report = []
+
+		reward_scale = self.classes[proc.classname]["time_reward"]
+		if reward_scale is None:
+			# No reward scale given; try to grab as many cores as the process type can use
+			report.append("Class " + proc.classname + " gives no profiling parameters: try for " + str(proc.maxcores) + " cores")
+			maxcores = proc.maxcores
+		else:
+			size_time = self.classes[proc.classname]["size_time"]
+			thread_time = self.classes[proc.classname]["thread_time"]
+			assert(size_time is not None and thread_time is not None)
+
+			nthreads_choices = core_choices(proc.maxcores)
+			reward_choices = {c: est_reward(proc.estsize, size_time, thread_time, reward_scale, c) for c in nthreads_choices}
+
+			report.append("Estimated core -> rewards " + ", ".join("%d -> %g" % x for x in reward_choices.iteritems()))
+		
+			slots_available = {c: 0 for c in nthreads_choices}
+
+			for w in self.workers.itervalues():
+
+				if w.delete_pending or w.fully_occupied():
+					continue
+
+				this_w_cores = min(w.free_cores, w.free_memory / proc.mempercore)
+				for c in nthreads_choices:
+					slots_available[c] += (this_w_cores / c)
+
+			# Approximation: assume the current set of running processes represents the expected rate of cores
+			# becoming free again.
+					
+			report.append("Slots available " + ", ".join("%d -> %d" % x for x in slots_available.iteritems()))
+			
+			running_procs = []
+			for w in self.workers.itervalues():
+				running_procs.extend(w.running_processes)
+
+			allocated_cores = sum(p.run_attributes["cores"] for p in running_procs)
+			finish_times = sorted(p.expected_finish_time for p in running_procs)
+			
+			if allocated_cores > 0 and len(finish_times) > 1:
+				finish_rate = allocated_cores / (finish_times[-1] - finish_times[0]).total_seconds()
+			else:
+				finish_rate = float(1) / 3600 # Shrug! One every hour?
+
+			report.append("Expected finish rate: " + str(finish_rate * (60 * 60)) + " cores/hr")
+
+			for (cores, slots) in slots_available.iteritems():
+
+				# Approximation: assuming the other processes in the queue
+				# have similar reward tradeoffs as this one.
+				if slots < len(self.pending):
+
+					report.append("Resource shortage if queued processes use " + str(cores) + (" cores (%d in queue; %d slots available)" % (len(self.pending), slots)))
+
+					penalised_procs = len(self.pending) - slots
+					slot_recovery_rate = (finish_rate * (60 * 60)) / cores
+
+					# We could wait for workers to become free...
+					loss_per_proc_waiting = reward_loss(reward_scale, slot_recovery_rate * (float(penalised_procs) / 2))
+					total_loss_waiting = loss_per_proc_waiting * penalised_procs
+
+					report.append("Reward loss due to waiting: " + str(total_loss_waiting) + " (slots become free every " + str(slot_recovery_rate) + " hours)")
+				
+					# Alternatively we could hire to get out of trouble. Factor in assumed lag:
+					loss_per_proc_hiring = reward_loss(reward_scale, self.new_worker_wait_time)
+					total_loss_hiring = loss_per_proc_hiring * penalised_procs
+
+					report.append("Reward loss due to hiring: " + str(total_loss_hiring) + " (hiring new workers takes " + str(self.new_worker_wait_time) + " hours)")
+
+					total_cores_now = sum(w.cores for w in self.workers.itervalues())
+					excess_cores = (total_cores_now + (penalised_procs * cores)) - self.worker_pool_size_threshold
+					if excess_cores > 0:
+						
+						extra_penalty = (self.worker_pool_oversize_penalty * excess_cores)
+						report.append("Extra penalty due to hiring " + str(excess_cores) + " excess cores: " + str(extra_penalty))
+						total_loss_hiring += extra_penalty
+
+					reward_choices[cores] -= min(total_loss_hiring, total_loss_waiting)
+					
+			maxcores, ignored = max(reward_choices.iteritems(), key = lambda x: x[1])
+			report.append("Setting max cores to assign: " + str(maxcores))
+
+		for w in self.workers.itervalues():
+
+			if w.delete_pending or w.fully_occupied():
+				continue
+
+			this_w_cores = min(maxcores, w.free_cores, w.free_memory / proc.mempercore)
+			if best_worker is None or this_w_cores > will_use_cores:
+				best_worker = w
+				will_use_cores = this_w_cores
+				if will_use_cores == maxcores:
+					break
+
+		report.append("Selected worker " + w.address + " / " + str(w.wid) + " with " + str(will_use_cores) + " cores")
+
+		if reward_scale is not None and best_worker is not None:
+			
+			evaluated_cores = sorted(reward_choices.iterkeys())
+			for c1, c2 in zip(evaluated_cores[:-1], evaluated_cores[1:]):
+
+				for i in range(c1 + 1, c2):
+
+					c1_prop = float(i - c1) / float(c2 - c1)
+					c2_prop = 1 - c1_prop
+					reward_choices[i] = (c1_prop * reward_choices[c1]) + (c2_prop * reward_choices[c2])
+
+			# Loss incurred for running on a smaller worker than we'd like.
+			scale_reward_loss = max(reward_choices.itervalues()) - reward_choices[will_use_cores]
+			est_finish_time = est_time(proc.estsize, size_time, thread_time, will_use_cores)
+
+			report.append("Loss incurred due to available slot scale: " + str(scale_reward_loss))
+
+			# Loss incurred for queueing:
+			queue_reward_loss = reward_loss(reward_scale, (datetime.datetime.now() - proc.queue_time).total_seconds() / (60 * 60))
+
+			report.append("Loss incurred due to queueing: " + str(queue_reward_loss))
+
+			report.append("Estimated finish time: " + print_dt(datetime.datetime.now() + datetime.timedelta(seconds = est_finish_time)))
+
+		else:
+
+			scale_reward_loss = 0
+			queue_reward_loss = 0
+			est_finish_time = datetime.datetime.now() + datetime.timedelta(hours=1) # Shrug!
+
+		if best_worker is None:
+			run_attr = None
+		else:
+			run_attr = {"cores": will_use_cores, "memory": proc.mempercore * will_use_cores}
+
+		if best_worker is not None:
+			print "\n".join(report)
+
+		return run_attr, best_worker, scale_reward_loss, queue_reward_loss, est_finish_time
+
+	def update_worker_resource_stats(self, worker):
+
+		idle_cores_prop = str(float(worker.free_cores) / worker.cores)
+		idle_mem_prop = str(float(worker.free_memory) / worker.memory)
+
+		attrs = [(idle_cores_prop, "idle_cores"),
+			 (idle_mem_prop, "idle_mem")]
+
+		commands = ["echo %s > /tmp/scan_%s.new; mv /tmp/scan_%s.new /tmp/scan_%s" % (val, key, key, key) for (val, key) in attrs]
+
+		composite_command = "; ".join(commands)
+		
+		cmdline = self.getrunner(worker)
+		cmdline.append(composite_command)
+		subprocess.check_call(cmdline)
+
         def trystartproc(self):
 
                 if len(self.pending) == 0:
                         return False
                         
-                if len(self.freeworkers) == 0:
-                        return False
-
-                runworker = self.freeworkers[-1]
-                self.freeworkers.pop()
-
-                cmdline = self.getrunner(runworker)
-
                 np = self.pending[0]
+
+		run_attributes, run_worker, scale_reward_loss, queue_reward_loss, est_finish_time = self.select_run_attributes(np)
+		if run_worker is None:
+			return False
+
+		np.run_attributes = run_attributes
+		np.expected_finish_time = est_finish_time
+
+                cmdline = self.getrunner(run_worker)
 
                 # Expose the current environment:
                 cmd = np.cmd
-                for key, val in self.current_hwspec.iteritems():
-                        cmd = cmd.replace("%%%%%s%%%%" % key, val)
+                for key, val in run_attributes.iteritems():
+                        cmd = cmd.replace("%%%%%s%%%%" % key, str(val))
                         cmd = "export SCAN_%s=%s; %s" % (key.upper(), val, cmd)
 
                 # Prepend bookkeeping:
@@ -263,10 +453,18 @@ class TinyScheduler:
                 print "Start process", np.pid, cmdline
 
                 np.proc = subprocess.Popen(cmdline)
-                np.worker = runworker
-                runworker.busy = True
+                np.worker = run_worker
+		run_worker.free_cores -= run_attributes["cores"]
+		run_worker.free_memory -= run_attributes["memory"]
+		run_worker.running_processes.append(np)
                 np.start_time = datetime.datetime.now()
                 self.pending.pop(0)
+
+		self.update_worker_resource_stats(np.worker)
+
+		# Accounting: reward lost due to queueing and suboptimal worker assignment:
+		self.scale_reward_loss += scale_reward_loss
+		self.queue_reward_loss += queue_reward_loss
 
                 return True
 
@@ -281,7 +479,7 @@ class TinyScheduler:
                 if in_workers_map:
                         del self.workers[freed_worker.wid]
                 
-                params = {"classname": self.classspec["name"], "wid": freed_worker.wid, "address": freed_worker.address}
+                params = {"wid": freed_worker.wid, "address": freed_worker.address}
 
                 host, address = None, None
 
@@ -294,7 +492,7 @@ class TinyScheduler:
                         return
 
                 self.httpqueue.queue.put((host, address, params))
-                print "Release worker callback for", freed_worker.wid, freed_worker.address
+                print "Release worker callback queued for", freed_worker.wid, freed_worker.address
 
 	def pollworkitem(self, pid):
 
@@ -314,7 +512,11 @@ class TinyScheduler:
 					print "*** Task", pid, "failed! (rc: %d)" % ret
                         
                                 freed_worker = rp.worker
-                                freed_worker.busy = False
+                                freed_worker.free_cores += rp.run_attributes["cores"]
+				freed_worker.free_memory += rp.run_attributes["memory"]
+				freed_worker.running_processes.remove(rp)
+
+				self.update_worker_resource_stats(freed_worker)
 
 				if ret == 0:
 
@@ -332,8 +534,9 @@ class TinyScheduler:
                 	                        workdone = 1
 
 	                                runhours = (datetime.datetime.now() - rp.start_time).total_seconds() / (60 * 60)
-	                                self.lastwph = float(workdone) / runhours
-	                                print "Task completed %g units of work in %g hours; new wph = %g" % (workdone, runhours, self.lastwph)
+					newwph = float(workdone) / runhours
+	                                self.classes[rp.classname]["lastwph"] = newwph
+	                                print "Task completed %g units of work in %g hours; new wph = %g" % (workdone, runhours, newwph)
         
 					del self.procs[pid]
 
@@ -347,63 +550,54 @@ class TinyScheduler:
 						print "Queueing for retry", rp.failures
 						rp.worker = None
 						rp.proc = None
+						rp.queue_time = datetime.datetime.now()
 						self.pending.append(rp)
 
                                 if freed_worker.delete_pending:
-                                        print "Releasing worker", freed_worker.wid, freed_worker.address
-                                        self.release_worker(freed_worker, freed_worker.delete_pending_callback)
+					if len(freed_worker.running_processes) == 0:
+						print "Releasing worker", freed_worker.wid, freed_worker.address
+						self.release_worker(freed_worker, freed_worker.delete_pending_callback)
                                         freed_worker = None
-
-                                elif len(self.pendingremoves) > 0:
-                                        print "Releasing worker", freed_worker.wid, freed_worker.address
-                                        self.release_worker(freed_worker, self.pendingremoves[0])
-                                        self.pendingremoves = self.pendingremoves[1:]
-                                        freed_worker = None
-
-                                elif freed_worker.hwspec_version != self.current_hwspec_version:
-                                        if len(self.pendingreplacements) == 0:
-                                                raise Exception("No pending replacements, but worker %s version %d does not match current version %d?" % 
-                                                                (freed_worker.address, freed_worker.hwspec_version, self.current_hwspec_version))
-                                        print "Replacing worker", freed_worker.wid, freed_worker.address, "with", self.pendingreplacements[-1].wid, self.pendingreplacements[-1].address
-                                        self.release_worker(freed_worker, None)
-                                        freed_worker = self.pendingreplacements[-1]
-                                        self.workers[freed_worker.wid] = freed_worker
-                                        self.pendingreplacements.pop()
 
                                 if freed_worker is not None:
-					
-                                        self.freeworkers.insert(0, freed_worker)
 					self.trystartprocs()
 
 			return json.dumps({"pid": pid, "retcode": ret})
 
-        def addworkitem(self, cmd, fsreservation, dbreservation):
+        def addworkitem(self, cmd, classname, maxcores, mempercore, estsize):
+
+		mempercore = int(mempercore)
+		maxcores = int(maxcores)
+		estsize = float(estsize)
 
 		with self.lock:
 
 			newpid = self.nextpid
-			newproc = Task(cmd, newpid, self)
+			newproc = Task(cmd, newpid, classname, maxcores, mempercore, estsize, self)
 			self.nextpid += 1
 			self.procs[newpid] = newproc
+			newproc.queue_time = datetime.datetime.now()
 			self.pending.append(newproc)
                         print "Queue work item", newpid, cmd
 			self.trystartprocs()
 			return json.dumps({"pid": newpid})
 
-        def newworker(self, address):
+        def newworker(self, address, cores, memory):
                 
                 wid = self.nextwid
                 self.nextwid += 1
                 print "Add worker", wid, address
-                return Worker(address, self.current_hwspec_version, wid)
+                return Worker(address, wid, cores, memory)
 
-	def addworker(self, address):
+	def addworker(self, address, cores, memory):
+		
+		cores = int(cores)
+		memory = int(memory)
 
 		with self.lock:
 
-                        newworker = self.newworker(address)
+                        newworker = self.newworker(address, cores, memory)
                         self.workers[newworker.wid] = newworker
-                        self.freeworkers.append(newworker)
 			self.trystartprocs()
 			return json.dumps({"wid": newworker.wid})
 
@@ -418,7 +612,7 @@ class TinyScheduler:
                                 wid = int(wid)
 
                         if len(self.workers) == 0:
-                                raise Exception("No workers in this class pool")
+                                raise Exception("No workers registered")
 
                         if wid is not None:
 
@@ -429,8 +623,7 @@ class TinyScheduler:
                                 if target.delete_pending:
                                         raise Exception("Worker %d already pending deletion" % wid)
 
-                                if not target.busy:
-                                        self.freeworkers.remove(target)
+                                if len(target.running_processes) == 0:
                                         self.release_worker(target, callbackaddress)
                                 else:
                                         target.delete_pending = True
@@ -438,57 +631,19 @@ class TinyScheduler:
 
                         else:
 
-                                if len(self.freeworkers) == 0:
-                                        self.pendingremoves.append(callbackaddress)
+                                target = None
+				for w in self.workers:
+					if len(w.running_processes) == 0:
+						target = w
+						break
+				if target is None:
+					target = min(self.workers, key = lambda w : min(p.expected_finish_time for p in w.running_processes))
+                                        target.delete_pending = True
+					target.delete_pending_callback = callbackaddress
                                 else:
-                                        todel = self.freeworkers[-1]
-                                        self.freeworkers.pop()
-                                        self.release_worker(todel, callbackaddress)
+                                        self.release_worker(target, callbackaddress)
+
 			return json.dumps({"status": "ok"})
-
-	def modhwspec(self, addresses, newspec):
-
-		with self.lock:
-
-                        addresses = [x.strip() for x in addresses.split(",") if len(x.strip()) > 0]
-                        if len(addresses) != len(self.workers):
-                                raise Exception("Must supply the same number of replacement workers as are currently in the pool (supplied %d, have %d)" % (len(addresses), len(self.workers)))
-                                
-                        specs = [x.strip() for x in newspec.split(",") if len(x.strip()) > 0]
-                        newdict = dict()
-                        for spec in specs:
-                                bits = spec.split(":")
-                                if len(bits) != 2:
-                                        raise Exception("newspec parameter syntax: k1:v1,k2:v2...")
-                                newdict[bits[0]] = bits[1]
-                        self.current_hwspec = newdict
-
-                        self.current_hwspec_version += 1
-                        new_workers = [self.newworker(a) for a in addresses]
-                        new_worker_ids = [w.wid for w in new_workers]
-
-                        # Step 1: immediately release any pendingreplacements, which never
-                        # made it into the live worker pool.
-                        for w in self.pendingreplacements:
-                                self.release_worker(w, None, False)
-
-                        # Step 2: immediately replace any free workers.
-                        freeworkers = self.freeworkers
-                        self.freeworkers = []
-                        for w in freeworkers:
-                                self.release_worker(w, None)
-                                replace_with = new_workers[-1]
-                                new_workers.pop()
-                                self.workers[replace_with.wid] = replace_with
-                                self.freeworkers.append(replace_with)
-
-                        print "Replaced", len(self.workers) - len(new_workers), "workers immediately;", len(new_workers), "pending"
-
-                        # Step 3: queue up the remaining replacements to enter service when
-                        # currently busy workers become free.
-                        self.pendingreplacements = new_workers
-
-			return json.dumps({"wids": new_worker_ids})
 
         def parsecallbackaddress(self, address):
                 if address.startswith("http://"):
@@ -519,27 +674,8 @@ class TinyScheduler:
 
         def getresusage(self):
                 
-                # Get resource usage, as proportions compared to the
-                # current hardware spec. The current spec may not have
-                # fully taken effect yet, so this really shows what it
-                # _will_ be once it does.
-
-                try:
-                        cores = int(self.current_hwspec["cores"])
-                except KeyError:
-                        raise Exception("Must specify hwspec core count before getresusage works")
-
-                try:
-                        mem = int(self.current_hwspec["memory"])
-                except KeyError:
-                        raise Exception("Must specify memory amount before getresusage works")
-
-                tocheck = []
-
                 with self.lock:
-                        for proc in self.procs.itervalues():
-                                if proc.worker is not None:
-                                        tocheck.append(proc)
+			tocheck = [p for p in self.procs.itervalues() if p.worker is not None]
 
                 now = datetime.datetime.now()
 
@@ -553,13 +689,13 @@ class TinyScheduler:
                                 res = proc.getresusage()
                         except Exception as e:
                                 print >>sys.stderr, "Skipping process %d (%s)" % (proc.pid, e)
-
                                 continue
-                        walltime = (now - proc.start_time).total_seconds() * cores
+
+                        walltime = (now - proc.start_time).total_seconds()
                         cpu_usage = float(res["cpuseconds"]) / walltime
                         cpu_usage_samples.append(cpu_usage)
 
-                        mem_usage_samples.append(float(res["rsskb"]) / (mem * 1024))
+                        mem_usage_samples.append(float(res["rsskb"]) / proc.worker.memory)
 
                 if len(cpu_usage_samples) == 0:
                         return json.dumps({"cpu": 0, "mem": 0})
@@ -567,8 +703,14 @@ class TinyScheduler:
                         return json.dumps({"cpu": sum(cpu_usage_samples) / len(cpu_usage_samples),
                                            "mem": sum(mem_usage_samples) / len(mem_usage_samples)})
 
-        def getwph(self):
-                return str(self.lastwph)
+        def getwph(self, classname):
+                return str(self.classes[classname]["lastwph"])
+
+	def getqueuerewardloss(self):
+		return str(self.queue_reward_loss)
+
+	def getscalerewardloss(self):
+		return str(self.scale_reward_loss)
 
 class HttpQueue:
 
@@ -631,12 +773,11 @@ class TaskPoller:
 
                 while True:
 
-                        for q in sched.queues.itervalues():
-                                for pid in q.getpids():
-                                        q.pollworkitem(pid)
+			for pid in sched.getpids():
+				sched.pollworkitem(pid)
                                         
-                        with q.lock:
-                                q.trystartprocs()
+                        with sched.lock:
+                                sched.trystartprocs()
 
                         if self.stop_event.wait(10):
                                 return

@@ -62,8 +62,10 @@ public class ScanProbe extends Probe{
 			this.addProbeProperty(idx + 2, c + "_avgCpuUsage", ProbePropertyType.DOUBLE, "", c + " average task CPU usage");
 			this.addProbeProperty(idx + 3, c + "_avgMemoryUsage", ProbePropertyType.DOUBLE, "", c + " average task memory usage");
 			this.addProbeProperty(idx + 4, c + "_workerUtilisation", ProbePropertyType.DOUBLE, "", c + " worker pool utilisation (1 = all active, 0 = all idle)");
+			this.addProbeProperty(idx + 5, c + "_rewardLostToQueueing", ProbePropertyType.DOUBLE, "", c + " reward lost due to tasks queueing");
+			this.addProbeProperty(idx + 6, c + "_rewardLostToSmallWorkers", ProbePropertyType.DOUBLE, "", c + " reward lost due to workers unable to offer sufficient local parallelism");
 
-			idx += 5;
+			idx += 7;
 
 		}
 	}
@@ -147,6 +149,20 @@ public class ScanProbe extends Probe{
 
 	}
 
+	private double getRewardLossToQueueing(String c) throws MalformedURLException, IOException {
+
+		String v = getString("getqueuerewardloss?classname=" + c);
+		return Double.parseDouble(v);		
+
+	}	
+
+	private double getRewardLossToSmallWorkers(String c) throws MalformedURLException, IOException {
+
+		String v = getString("getscalerewardloss?classname=" + c);
+		return Double.parseDouble(v);		
+
+	}	
+
 	private void getResourceUsage(HashMap<Integer, Object> values, String c, int offset) throws MalformedURLException, IOException {
 
 //		InputStream is = getStream("getresusage?classname=" + c);
@@ -171,10 +187,14 @@ public class ScanProbe extends Probe{
 			long qlen = getQueueLength(c);
 			double ut = getWorkerUtilisation(c);
 			double wph = getWorkPerHour(c);
+			double queueLoss = getRewardLossToQueueing(c);
+			double scaleLoss = getRewardLossToSmallWorkers(c);
 		
 			values.put(offset + 0, qlen);
 			values.put(offset + 1, wph);
 			values.put(offset + 4, ut);
+			values.put(offset + 5, queueLoss);
+			values.put(offset + 6, scaleLoss);
 
 			System.out.printf("Qlen: %d, wph: %g, utilisation: %g\n", qlen, wph, ut);
 

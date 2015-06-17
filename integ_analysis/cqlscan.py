@@ -1,5 +1,10 @@
 
-import cql
+
+import sys
+try:
+	import cql
+except:
+	print >>sys.stderr, "Failed to load cql module; integrated results not available"
 import uuid
 
 def cql_connect(host = "localhost", keyspace = "scan"):
