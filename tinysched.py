@@ -269,10 +269,14 @@ class MulticlassScheduler:
         def ping(self, echo):
                 return json.dumps({"echo": echo})
 
-	def getcopier(self, worker, fromfiles, topath):
+	def getcopier(self, worker, fromfiles, topath, copyout = True):
 		cmdline = copy.deepcopy(copier)
-		cmdline.extend(fromfiles)
-		cmdline.append("%s@%s:%s" % (self.worker_login_username, worker.address, topath))
+		if copyout:
+			cmdline.extend(fromfiles)
+			cmdline.append("%s@%s:%s" % (self.worker_login_username, worker.address, topath))
+		else:
+			cmdline.extend(["%s@%s:%s" % (self.worker_login_username, worker.address, f) for f in fromfiles])
+			cmdline.append(topath)
 		return cmdline
 
         def getrunner(self, worker):
@@ -284,6 +288,7 @@ class MulticlassScheduler:
 	def select_run_attributes(self, proc):
 
 		will_use_cores = None
+		missing_files = None
 		best_worker = None
 
 		report = []
@@ -374,14 +379,28 @@ class MulticlassScheduler:
 			if w.delete_pending or w.fully_occupied():
 				continue
 
+			def score_file(f, wid):
+				if f not in self.dfs_map:
+					# Error will be resolved later
+					return 0
+				stat = self.dfs_map[f]
+				if wid in stat["pending"]:
+					return 0.5
+				elif wid not in stat["complete"]:
+					return 1.0
+				return 0
+
 			this_w_cores = min(maxcores, w.free_cores, w.free_memory / proc.mempercore)
-			if best_worker is None or this_w_cores > will_use_cores:
+			this_w_missing_files = sum(score_file(f, w.wid) for f in proc.filesin)
+			
+			if best_worker is None or this_w_cores > will_use_cores or (this_w_cores == will_use_cores and this_w_missing_files < missing_files):
 				best_worker = w
 				will_use_cores = this_w_cores
-				if will_use_cores == maxcores:
+				missing_files = this_w_missing_files
+				if will_use_cores == maxcores and missing_files == 0:
 					break
 
-		report.append("Selected worker " + w.address + " / " + str(w.wid) + " with " + str(will_use_cores) + " cores")
+		report.append("Selected worker " + w.address + " / " + str(w.wid) + " with " + str(will_use_cores) + " cores and " + str(missing_files) + " missing files.")
 
 		if reward_scale is not None and best_worker is not None:
 			
@@ -477,7 +496,6 @@ class MulticlassScheduler:
 				dfsstat = self.dfs_map[needf]
 			except KeyError:
 				raise Exception("Process needs file %s which is not in the SCAN DFS" % needf)
-			print "Existing file status", run_worker.wid, dfsstat
 			if run_worker.wid in dfsstat["complete"]:
 				print "Required file", needf, "already present"
 				pass
@@ -491,7 +509,7 @@ class MulticlassScheduler:
 				create_donefile = self.abs_done_file(needf)
 				# Pick some worker that already has the file:
 				copy_from = self.workers[random.choice(dfsstat["complete"])]
-				copier = self.getcopier(copy_from, [abs_local_path], abs_local_path)
+				copier = self.getcopier(copy_from, [abs_local_path], abs_local_path, copyout = False)
 				cmd = "%s || exit 1; touch %s; %s" % (" ".join(copier), create_donefile, cmd)
 				dfsstat["pending"].append(run_worker.wid)
 				print "Required file", needf, "will be copied from", copy_from.address
