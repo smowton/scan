@@ -14,11 +14,15 @@ import traceback
 import websupport
 import imp
 import math
+import os.path
+import random
 
 import scan_templates
 import integ_analysis.results
 
 runner = ["/usr/bin/ssh", "-o", "StrictHostKeyChecking=no"]
+copier = ["/usr/bin/scp", "-o", "StrictHostKeyChecking=no"]
+scanfs_root = "/mnt/scanfs"
 
 def reward_loss(reward_scale, delay):
 	return reward_scale[1] * delay
@@ -75,7 +79,7 @@ class Worker:
 
 class Task:
 
-	def __init__(self, cmd, pid, classname, maxcores, mempercore, estsize, sched):
+	def __init__(self, cmd, pid, classname, maxcores, mempercore, estsize, filesin, filesout, sched):
 		self.cmd = cmd
                 self.pid = pid
 		self.maxcores = maxcores
@@ -88,6 +92,8 @@ class Task:
 		self.classname = classname
 		self.failures = 0
 		self.run_attributes = None
+		self.filesin = filesin
+		self.filesout = filesout
 
         def to_dict(self):
                 d = copy.copy(self.__dict__)
@@ -154,6 +160,8 @@ class SubmitUI:
 <p>Max cores: <input name="maxcores"/></p>
 <p>Memory per core: <input name="mempercore"/></p>
 <p>Estimated job size: <input name="estsize"/></p>
+<p>Files required (colon-separated): <input name="filesin"/></p>
+<p>Files produced (colon-separated): <input name="filesout"/></p>
 </td></tr>
 <tr><td><input type="submit"/></td></tr></table></p>
 </form></body></html>""" % (self.mktemplatecombo(), self.mkclasscombo())
@@ -163,7 +171,7 @@ class MulticlassScheduler:
         def __init__(self, httpqueue, classfile, classargs):
 
 		self.resource_script_path = "/home/user/csmowton/scan/getres.py"
-		self.worker_login_username = "csmowton"
+		self.worker_login_username = "user"
 
                 if classfile is not None:
                         self.classes = imp.load_source("user_classes_module", classfile).getclasses(**classargs)
@@ -194,8 +202,10 @@ class MulticlassScheduler:
 		self.worker_pool_size_threshold = 100
 		self.worker_pool_oversize_penalty = 10
 
+		self.dfs_map = dict()
+
         @cherrypy.expose
-        def addworkitem_ui(self, template, templateinputs, classname, script, maxcores, mempercore, estsize):
+        def addworkitem_ui(self, template, templateinputs, classname, script, maxcores, mempercore, estsize, filesin, filesout):
 
                 try:
 
@@ -224,7 +234,7 @@ class MulticlassScheduler:
                         pids = []
 
                         for s in scripts:
-                                ret = self.default(callname="addworkitem", classname=classname, cmd=s, set_ct=False, maxcores = maxcores, mempercore = mempercore, estsize = estsize)
+                                ret = self.default(callname="addworkitem", classname=classname, cmd=s, set_ct=False, maxcores = maxcores, mempercore = mempercore, estsize = estsize, filesin = filesin, filesout = filesout)
                                 pids.append(json.loads(ret)["pid"])
                               
                         return "<html><body><p>Created PIDs %s</p></body></html>" % ", ".join([str(p) for p in pids])
@@ -258,6 +268,12 @@ class MulticlassScheduler:
         @cherrypy.expose
         def ping(self, echo):
                 return json.dumps({"echo": echo})
+
+	def getcopier(self, worker, fromfiles, topath):
+		cmdline = copy.deepcopy(copier)
+		cmdline.extend(fromfiles)
+		cmdline.append("%s@%s:%s" % (self.worker_login_username, worker.address, topath))
+		return cmdline
 
         def getrunner(self, worker):
                 cmdline = copy.deepcopy(runner)
@@ -423,6 +439,13 @@ class MulticlassScheduler:
 		cmdline.append(composite_command)
 		subprocess.check_call(cmdline)
 
+	def abs_dfs_file(self, relpath):
+		return os.path.join(scanfs_root, relpath)
+
+	def abs_done_file(self, relpath):
+		path, basename = os.path.split(relpath)
+		return os.path.join(scanfs_root, path, ".%s.done" % basename)
+
         def trystartproc(self):
 
                 if len(self.pending) == 0:
@@ -447,6 +470,31 @@ class MulticlassScheduler:
 
                 # Prepend bookkeeping:
                 cmd = "mkdir -p %s; export SCAN_WORKCOUNT_FILE=%s; echo $$ > %s; %s" % (np.taskdir(), np.workcountfile(), np.pidfile(), cmd)
+
+		# Prepend file fetching (TODO: make this more asynchronous)
+		for needf in np.filesin:
+			try:
+				dfsstat = self.dfs_map[needf]
+			except KeyError:
+				raise Exception("Process needs file %s which is not in the SCAN DFS" % needf)
+			print "Existing file status", run_worker.wid, dfsstat
+			if run_worker.wid in dfsstat["complete"]:
+				print "Required file", needf, "already present"
+				pass
+			elif run_worker.wid in dfsstat["pending"]:
+				print "Required file", needf, "pending"
+				await_donefile = self.abs_done_file(needf)
+				cmd = "while [ ! -f %s ]; do echo Waiting for %s; sleep 5; done; %s" % (await_donefile, await_donefile, cmd)
+			else:
+				# Neither complete nor pending.
+				abs_local_path = self.abs_dfs_file(needf)
+				create_donefile = self.abs_done_file(needf)
+				# Pick some worker that already has the file:
+				copy_from = self.workers[random.choice(dfsstat["complete"])]
+				copier = self.getcopier(copy_from, [abs_local_path], abs_local_path)
+				cmd = "%s || exit 1; touch %s; %s" % (" ".join(copier), create_donefile, cmd)
+				dfsstat["pending"].append(run_worker.wid)
+				print "Required file", needf, "will be copied from", copy_from.address
 
                 cmdline.append(cmd)
 
@@ -475,9 +523,30 @@ class MulticlassScheduler:
 
         def release_worker(self, freed_worker, callback, in_workers_map = True):
 
-                # Worker has already been removed from the free list.
                 if in_workers_map:
                         del self.workers[freed_worker.wid]
+
+		# Copy out any files that only this worker has available
+		for f, stat in self.dfs_map.iteritems():
+			if freed_worker.wid in stat["pending"]:
+				print "Released worker", freed_worker.wid, "still marked pending", f
+				stat["pending"].remove(freed_worker.wid)
+			if freed_worker.wid in stat["complete"]:
+				if len(stat["complete"]) == 1:
+					try:
+						give_to_worker = random.choice([v for v in self.workers.values() if not v.delete_pending])
+					except IndexError:
+						print "No workers remaining! The DFS loses the file"
+						continue
+					print "Only removed worker has file %s; giving to %s / %s" % (f, give_to_worker.address, give_to_worker.wid)
+					copier = self.getcopier(give_to_worker, [self.abs_dfs_file(f)], self.abs_dfs_file(f))
+					runner = self.getrunner(freed_worker)
+					runner.append(copier)
+					try:
+						subprocess.check_call(runner)
+						stat["complete"] = [give_to_worker.wid]
+					except subprocess.CalledProcessError:
+						print "Copy failed! The DFS loses file", f
                 
                 params = {"wid": freed_worker.wid, "address": freed_worker.address}
 
@@ -520,6 +589,27 @@ class MulticlassScheduler:
 
 				if ret == 0:
 
+					# Promote pending files:
+					for copiedf in rp.filesin:
+						dfsstat = self.dfs_map[copiedf]
+						if freed_worker.wid in dfsstat["pending"]:
+							print copiedf, "successfully copied to", freed_worker.address, "/", freed_worker.wid
+							dfsstat["pending"].remove(freed_worker.wid)
+							dfsstat["complete"].append(freed_worker.wid)
+
+					# Verify output files:
+					for madef in rp.filesout:
+						check_proc = self.getrunner(rp.worker)
+						check_proc.append("stat %s && touch %s" % (self.abs_dfs_file(madef), self.abs_done_file(madef)))
+						try:
+							subprocess.check_call(check_proc)
+							print "Task produced", madef, "as expected"
+							if madef not in self.dfs_map:
+								self.dfs_map[madef] = {"pending": [], "complete": []}
+							self.dfs_map[madef]["complete"].append(freed_worker.wid)
+						except subprocess.CalledProcessError:
+							print "Task promised to produce", madef, "but didn't; future tasks likely to fail"
+
 	                                try:
         	                                read_proc = self.getrunner(rp.worker)
                 	                        read_proc.append("cat %s" % rp.workcountfile())
@@ -541,6 +631,13 @@ class MulticlassScheduler:
 					del self.procs[pid]
 
 				else:
+
+					# For now just assume file copying failed:
+					for failedf in rp.filesin:
+						dfsstat = self.dfs_map[failedf]
+						if freed_worker.wid in dfsstat["pending"]:
+							print "Assuming task also failed to copy", failedf
+							dfsstat["pending"].remove(freed_worker.wid)
 
 					if rp.failures == 10:
 						print "Too many failures; giving up"
@@ -564,16 +661,20 @@ class MulticlassScheduler:
 
 			return json.dumps({"pid": pid, "retcode": ret})
 
-        def addworkitem(self, cmd, classname, maxcores, mempercore, estsize):
+        def addworkitem(self, cmd, classname, maxcores, mempercore, estsize, filesin, filesout):
 
 		mempercore = int(mempercore)
 		maxcores = int(maxcores)
 		estsize = float(estsize)
 
+		def filelist(fstr):
+			flist = fstr.split(":")
+			return [f.strip() for f in flist if len(f.strip()) > 0]
+
 		with self.lock:
 
 			newpid = self.nextpid
-			newproc = Task(cmd, newpid, classname, maxcores, mempercore, estsize, self)
+			newproc = Task(cmd, newpid, classname, maxcores, mempercore, estsize, filelist(filesin), filelist(filesout), self)
 			self.nextpid += 1
 			self.procs[newpid] = newproc
 			newproc.queue_time = datetime.datetime.now()
@@ -596,8 +697,36 @@ class MulticlassScheduler:
 
 		with self.lock:
 
+			if any(w.address == address for w in self.workers.itervalues()):
+				raise Exception("We already have a worker with that address")
+
                         newworker = self.newworker(address, cores, memory)
                         self.workers[newworker.wid] = newworker
+
+			# Enable worker-to-worker SSH:
+			copycmd = self.getcopier(newworker, [os.path.join(os.path.expanduser("~"), ".ssh/id_rsa")], "/home/%s/.ssh" % self.worker_login_username)
+			subprocess.check_call(copycmd)
+
+			# Get existing DFS map, if any:
+			runner = self.getrunner(newworker)
+			runner.extend(["find", scanfs_root])
+			find_output = subprocess.check_output(runner)
+			for l in find_output.split("\n"):
+				if l.startswith(scanfs_root):
+					l = l[len(scanfs_root):].strip()
+					if l.startswith("/"):
+						l = l[1:]
+					if len(l) == 0:
+						continue
+					path, basename = os.path.split(l)
+					if basename[0] != "." or not basename.endswith(".done"):
+						continue
+					l = os.path.join(path, basename[1:-len(".done")])
+					print "New worker", newworker.address, "seems to already have", l
+					if l not in self.dfs_map:
+						self.dfs_map[l] = {"complete": [], "pending": []}
+					self.dfs_map[l]["complete"].append(newworker.wid)
+
 			self.trystartprocs()
 			return json.dumps({"wid": newworker.wid})
 
