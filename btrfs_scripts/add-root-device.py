@@ -25,7 +25,7 @@ statvfs = os.statvfs('/')
 alloc_blocks = int(statvfs.f_bavail * 0.8)
 alloc_bytes = statvfs.f_bsize * alloc_blocks
 print "Allocating %s of root partition to btrfs" % pp_bytes(alloc_bytes)
-subprocess.check_call(["/usr/bin/fallocate", "-l", str(alloc_bytes)])
+subprocess.check_call(["/usr/bin/fallocate", "-l", str(alloc_bytes), img_file])
 subprocess.check_call(["/sbin/losetup", loopdev, img_file])
 
 btrfs_common.add_device(loopdev)
