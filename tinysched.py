@@ -16,6 +16,7 @@ import imp
 import math
 import os.path
 import random
+import numpy
 
 import scan_templates
 import integ_analysis.results
@@ -37,6 +38,9 @@ def est_time(estsize, size_time, thread_time, cores):
 	single_thread_time = size_time[0] + (size_time[1] * estsize)
 	return ((1 - thread_time) + (thread_time / cores)) * single_thread_time
 
+def inverse_est_time(mctime, cores, thread_time):
+	return mctime / ((1 - thread_time) + (thread_time / cores))
+
 def core_choices(max):
 
 	choices = [max]
@@ -57,6 +61,11 @@ def print_dt(dt):
 		return dt.strftime("%H:%M:%S")
 	else:
 		return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+def simple_linreg(xs, ys):
+
+	xtran = np.vstack([xs, np.ones(len(xs))]).T
+	return numpy.linalg.lstsq(xtran, y)[0]
 
 class Worker:
 
@@ -177,6 +186,9 @@ class MulticlassScheduler:
                         self.classes = imp.load_source("user_classes_module", classfile).getclasses(**classargs)
                 else:
 			self.classes = {"linux": {"lastwph": 0, "description": "Generic Linux tasks", "time_reward": None, "size_time": None, "thread_time": None} }
+
+		for v in self.classes.itervalues():
+			v["time_history"] = []
 
 		self.taskqueue = []
 		self.httpqueue = httpqueue
@@ -581,6 +593,55 @@ class MulticlassScheduler:
                 self.httpqueue.queue.put((host, address, params))
                 print "Release worker callback queued for", freed_worker.wid, freed_worker.address
 
+	def update_class_model(self, classname):
+
+		cl = self.classes[classname]
+		history_limit = 100
+		history_needed = 5
+		if len(cl["time_history"]) > history_limit:
+			cl["time_history"] = cl["time_history"][1:]
+
+		# Step 1: Guess how much the estsize parameter is telling us using the most popular core count
+		
+		history = cl["time_history"]
+
+		core_records = dict()
+		for (size, cores, td) in history:
+			if cores not in core_records:
+				core_records[cores] = 0
+			core_records[cores] += 1
+
+		select_cores = max(core_records.iterkeys(), key = lambda x : core_records[x])
+		model_records = [(size, td) for (size, cores, td) in history if cores == select_cores]
+
+		if len(model_records) < history_needed:
+			return
+
+		# Use the existing thread model to infer single-core times from multi-core ones.
+		sizes = [x for (x, y) in model_records]
+		hours = [inverse_est_time((y.total_seconds() * select_cores) / (60 * 60)) for (x, y) in model_records]
+
+		gradient, icpt = simple_linreg(sizes, hours)
+		print "Updated model for class %s: time = %f(estsize) + %f" % (classname, gradient, icpt)
+		self.classes[classname]["size_time"] = (icpt, gradient)
+
+		elim_props = []
+
+		for (size, cores, td) in history:
+			if cores == 1:
+				continue
+			hours = td.total_seconds() / (60 * 60)
+			model_st_hours = icpt + (gradient * size)
+			ideal_mt_hours = model_st_hours / cores
+			residual_hours = hours - ideal_mt_hours
+			elim_prop = residual_hours / model_st_hours
+			elim_props.append(elim_prop)
+
+		new_prop = 1 - (sum(elim_props) / len(elim_props))
+		self.classes[classname]["thread_time"] = new_prop
+
+		print "Updated thread model for class %s: %f scalable" % (classname, new_prop) 
+
 	def pollworkitem(self, pid):
 
 		with self.lock:
@@ -602,6 +663,9 @@ class MulticlassScheduler:
                                 freed_worker.free_cores += rp.run_attributes["cores"]
 				freed_worker.free_memory += rp.run_attributes["memory"]
 				freed_worker.running_processes.remove(rp)
+				
+				self.classes[rp.classname]["time_history"].append((rp.estsize, rp.run_attributes["cores"], datetime.datetime.now() - rp.start_time))
+				self.update_class_model(rp.classname)
 
 				self.update_worker_resource_stats(freed_worker)
 
