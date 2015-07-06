@@ -412,8 +412,6 @@ class MulticlassScheduler:
 				if will_use_cores == maxcores and missing_files == 0:
 					break
 
-		report.append("Selected worker " + w.address + " / " + str(w.wid) + " with " + str(will_use_cores) + " cores and " + str(missing_files) + " missing files.")
-
 		if reward_scale is not None and best_worker is not None:
 			
 			evaluated_cores = sorted(reward_choices.iterkeys())
@@ -447,6 +445,7 @@ class MulticlassScheduler:
 		if best_worker is None:
 			run_attr = None
 		else:
+			report.append("Selected worker " + best_worker.address + " / " + str(best_worker.wid) + " with " + str(will_use_cores) + " cores and " + str(missing_files) + " missing files.")
 			run_attr = {"cores": will_use_cores, "memory": proc.mempercore * will_use_cores}
 
 		if best_worker is not None:
