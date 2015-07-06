@@ -64,8 +64,8 @@ def print_dt(dt):
 
 def simple_linreg(xs, ys):
 
-	xtran = np.vstack([xs, np.ones(len(xs))]).T
-	return numpy.linalg.lstsq(xtran, y)[0]
+	xtran = numpy.vstack([xs, numpy.ones(len(xs))]).T
+	return numpy.linalg.lstsq(xtran, ys)[0]
 
 class Worker:
 
@@ -343,8 +343,10 @@ class MulticlassScheduler:
 			allocated_cores = sum(p.run_attributes["cores"] for p in running_procs)
 			finish_times = sorted(p.expected_finish_time for p in running_procs)
 			
-			if allocated_cores > 0 and len(finish_times) > 1:
+			if allocated_cores > 0 and len(finish_times) > 1 and finish_times[-1] != finish_times[0]:
 				finish_rate = allocated_cores / (finish_times[-1] - finish_times[0]).total_seconds()
+			elif len(finish_times) == 1:
+				finish_rate = allocated_cores / max((finish_times[0] - datetime.datetime.now()).total_seconds(), 1)
 			else:
 				finish_rate = float(1) / 3600 # Shrug! One every hour?
 
@@ -362,7 +364,7 @@ class MulticlassScheduler:
 					slot_recovery_rate = (finish_rate * (60 * 60)) / cores
 
 					# We could wait for workers to become free...
-					loss_per_proc_waiting = reward_loss(reward_scale, slot_recovery_rate * (float(penalised_procs) / 2))
+					loss_per_proc_waiting = reward_loss(reward_scale, (1 / slot_recovery_rate) * (float(penalised_procs) / 2))
 					total_loss_waiting = loss_per_proc_waiting * penalised_procs
 
 					report.append("Reward loss due to waiting: " + str(total_loss_waiting) + " (slots become free every " + str(slot_recovery_rate) + " hours)")
@@ -434,13 +436,13 @@ class MulticlassScheduler:
 
 			report.append("Loss incurred due to queueing: " + str(queue_reward_loss))
 
-			report.append("Estimated finish time: " + print_dt(datetime.datetime.now() + datetime.timedelta(seconds = est_finish_time)))
+			report.append("Estimated duration: " + str(datetime.timedelta(hours = est_finish_time)) + "; estimated finish time: " + print_dt(datetime.datetime.now() + datetime.timedelta(hours = est_finish_time)))
 
 		else:
 
 			scale_reward_loss = 0
 			queue_reward_loss = 0
-			est_finish_time = datetime.datetime.now() + datetime.timedelta(hours=1) # Shrug!
+			est_finish_time = 1 # Shrug!
 
 		if best_worker is None:
 			run_attr = None
@@ -451,7 +453,7 @@ class MulticlassScheduler:
 		if best_worker is not None:
 			print "\n".join(report)
 
-		return run_attr, best_worker, scale_reward_loss, queue_reward_loss, est_finish_time
+		return run_attr, best_worker, scale_reward_loss, queue_reward_loss, datetime.datetime.now() + datetime.timedelta(hours = est_finish_time)
 
 	def update_worker_resource_stats(self, worker):
 
@@ -618,28 +620,49 @@ class MulticlassScheduler:
 
 		# Use the existing thread model to infer single-core times from multi-core ones.
 		sizes = [x for (x, y) in model_records]
-		hours = [inverse_est_time((y.total_seconds() * select_cores) / (60 * 60)) for (x, y) in model_records]
+		hours = [inverse_est_time(y.total_seconds() / (60 * 60), select_cores, self.classes[classname]["thread_time"]) for (x, y) in model_records]
 
 		gradient, icpt = simple_linreg(sizes, hours)
 		print "Updated model for class %s: time = %f(estsize) + %f" % (classname, gradient, icpt)
 		self.classes[classname]["size_time"] = (icpt, gradient)
 
-		elim_props = []
+		similar_size_tolerance = 0.05
+
+		thread_reductions_observed = []
 
 		for (size, cores, td) in history:
-			if cores == 1:
+
+			similar_samples = [x for x in history if x[0] <= size * (1 + similar_size_tolerance) and x[0] >= size * (1 - similar_size_tolerance)]
+			cores_represented = len(set([x[1] for x in similar_samples]))
+			if cores_represented < 2:
 				continue
-			hours = td.total_seconds() / (60 * 60)
-			model_st_hours = icpt + (gradient * size)
-			ideal_mt_hours = model_st_hours / cores
-			residual_hours = hours - ideal_mt_hours
-			elim_prop = residual_hours / model_st_hours
-			elim_props.append(elim_prop)
+			
+			sum_by_cores = dict()
+			for (s, c, td) in similar_samples:
+				if c not in sum_by_cores:
+					sum_by_cores[c] = []
+				sum_by_cores[c].append(td.total_seconds() / (60 * 60))
 
-		new_prop = 1 - (sum(elim_props) / len(elim_props))
-		self.classes[classname]["thread_time"] = new_prop
+			for c in sum_by_cores.keys():
+				sum_by_cores[c] = sum(sum_by_cores[c]) / len(sum_by_cores[c])
 
-		print "Updated thread model for class %s: %f scalable" % (classname, new_prop) 
+			least_cores = min(sum_by_cores.iterkeys())
+			least_cores_avg = sum_by_cores[least_cores]
+
+			ideal_props = [float(least_cores) / float(c) for c in sum_by_cores.iterkeys()]
+			actual_props = [sum_by_cores[c] / least_cores_avg for c in sum_by_cores.iterkeys()]
+
+			gradient, icpt = simple_linreg(ideal_props, actual_props)
+
+			thread_reductions_observed.append(1.0 - icpt)
+
+		if len(thread_reductions_observed) != 0:
+
+			thread_reductions_observed = sorted(thread_reductions_observed)
+			new_prop = max(0.0, min(thread_reductions_observed[len(thread_reductions_observed) / 2], 1.0))
+			self.classes[classname]["thread_time"] = new_prop
+
+			print "Updated thread model for class %s: %f scalable" % (classname, new_prop) 
 
 	def pollworkitem(self, pid):
 
