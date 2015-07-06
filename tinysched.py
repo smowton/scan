@@ -787,6 +787,20 @@ class MulticlassScheduler:
 			self.trystartprocs()
 			return json.dumps({"pid": newpid})
 
+	def delworkitem(self, tid):
+		
+		tid = int(tid)
+
+		with self.lock:
+			rp = self.procs[tid]
+			if rp.proc is None:
+				self.pending.remove(rp)
+				del self.procs[tid]
+				return {"pid": tid, "status": "deleted_queued"}
+			else:
+				rp.proc.terminate()
+				return {"pid": tid, "status": "terminated"}
+
         def newworker(self, address, cores, memory):
                 
                 wid = self.nextwid
