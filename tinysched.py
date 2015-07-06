@@ -264,7 +264,7 @@ class MulticlassScheduler:
                         del kwargs["set_ct"]
 
 		if "classname" in kwargs and kwargs["classname"] not in self.classes:
-                        return json.dumps({"error": "No such class %s" % classname})
+                        return json.dumps({"error": "No such class %s" % kwargs["classname"]})
 		
                 try:
                         call = getattr(self, callname)
