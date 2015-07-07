@@ -20,26 +20,21 @@ class ScanJobManager extends CommandLineJobManager[ScanJobRunner] {
 
     try {
 
-    val url = "http://%s:%d/lsallprocs".format(scanHost, scanPort)
+    val url = "http://%s:%d/lsprocs".format(scanHost, scanPort)
     val stream = new URL(url).openStream()
     val tok = new JSONTokener(stream)
-    val classes = new JSONObject(tok)
+    val ids = new JSONObject(tok)
 
-    var mappings = List[((String, Long), JSONObject)]()
+    var mappings = List[(Long, JSONObject)]()
 
-    for(classname <- classes.keys) {
-
-      val ids = classes.getJSONObject(classname)
-      for(id <- ids.keys) {
+    for(id <- ids.keys) {
         
-        val id_long = id.toLong
-        mappings :+= ((classname, id_long), ids.getJSONObject(id))
-
-      }
+      val id_long = id.toLong
+      mappings :+= (id_long, ids.getJSONObject(id))
 
     }
 
-    val procmap : Map[(String, Long), JSONObject] = Map(mappings:_*)
+    val procmap : Map[Long, JSONObject] = Map(mappings:_*)
 
     for(runner <- runners) {
       runner.updateJobStatus(procmap)

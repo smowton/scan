@@ -4,7 +4,7 @@ import org.broadinstitute.sting.queue.function.CommandLineFunction
 class HelloWorldProc extends CommandLineFunction {
 
   def commandLine = "echo \"Hello World!\""
-  jobQueue = "gatk_rtc"
+  jobQueue = "linux"
 
 }
 

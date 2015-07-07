@@ -113,6 +113,10 @@ class Task:
                 del d["sched"]
                 if self.start_time is not None:
                         d["start_time"] = self.start_time.isoformat()
+		if "queue_time" in d and d["queue_time"] is not None:
+			d["queue_time"] = d["queue_time"].isoformat()
+		if "expected_finish_time" in d and d["expected_finish_time"] is not None:
+			d["expected_finish_time"] = d["expected_finish_time"].isoformat()
                 return d
 
         def taskdir(self):
@@ -597,6 +601,10 @@ class MulticlassScheduler:
 	def update_class_model(self, classname):
 
 		cl = self.classes[classname]
+
+		if cl["size_time"] is None:
+			return
+
 		history_limit = 100
 		history_needed = 5
 		if len(cl["time_history"]) > history_limit:

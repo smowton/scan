@@ -2,6 +2,7 @@ import org.broadinstitute.sting.queue.engine.{CommandLineJobRunner, RunnerStatus
 import org.broadinstitute.sting.queue.function.CommandLineFunction
 
 import java.net.{URL, URLEncoder}
+import java.io.File
 
 import org.json.{JSONTokener, JSONObject}
 
@@ -12,9 +13,9 @@ class ScanJobRunner(val function: CommandLineFunction, val manager: ScanJobManag
 
   def getIntegerNativeParam(name : String, defaultValue : Integer) : Integer = {
 
-    jobScript.jobNativeArgs.find(_ == name) match {
-      None => defaultValue |
-      Some(x) => Integer.parseInt(jobScript.jobNativeArgs(x + 1))
+    function.jobNativeArgs.indexOf(name) match {
+      case -1 => defaultValue
+      case x => Integer.parseInt(function.jobNativeArgs(x + 1))
     }
 
   }
@@ -35,14 +36,14 @@ class ScanJobRunner(val function: CommandLineFunction, val manager: ScanJobManag
     val escaped_cmd = URLEncoder.encode(cmd_with_err, "UTF-8")
     
     // Fish out args that aren't well expressed by existing Function members:
-    val memPerCore = getIntegerNativeParam("mempercore")
-    val estSize = getIntegerNativeParam("estsize")
+    val memPerCore = getIntegerNativeParam("mempercore", 1)
+    val estSize = getIntegerNativeParam("estsize", 1)
 
-    val declareInputs = getScanfsFiles(jobScript.inputs)
-    val declareOutputs = getScanfsFiles(jobScript.outputs)
+    val declareInputs = getScanfsFiles(function.inputs)
+    val declareOutputs = getScanfsFiles(function.outputs)
 
     val url = "http://%s:%d/addworkitem?classname=%s&maxcores=%d&mempercore=%d&estsize=%d&filesin=%s&filesout=%s&cmd=%s".format(
-      manager.scanHost, manager.scanPort, className, jobScript.nCoresRequest.getOrElse(1), memPerCore, estSize, declareInputs, declareOutputs, escaped_cmd)
+      manager.scanHost, manager.scanPort, className, function.nCoresRequest.getOrElse(1), memPerCore, estSize, declareInputs, declareOutputs, escaped_cmd)
     val stream = new URL(url).openStream()
     val tok = new JSONTokener(stream)
     val reply_obj = new JSONObject(tok)
@@ -54,11 +55,11 @@ class ScanJobRunner(val function: CommandLineFunction, val manager: ScanJobManag
 
   }
 
-  def updateJobStatus(procmap : Map[(String, Long), JSONObject]) = {
+  def updateJobStatus(procmap : Map[Long, JSONObject]) = {
 
-    logger.info("Check job status %s %d".format(className, jobId))
+    logger.info("Check job status %d".format(jobId))
 
-    procmap.get((className, jobId)) match {
+    procmap.get(jobId) match {
 
       case None => {
         updateStatus(RunnerStatus.DONE)
@@ -72,7 +73,7 @@ class ScanJobRunner(val function: CommandLineFunction, val manager: ScanJobManag
 
   def tryStop() { 
 
-    val url = "http://%s:%d/delworkitem?tid=%d".format(jobScript.jobId)
+    val url = "http://%s:%d/delworkitem?tid=%d".format(jobId)
     val stream = new URL(url).openStream()
     val tok = new JSONTokener(stream)
     val reply_obj = new JSONObject(tok)
