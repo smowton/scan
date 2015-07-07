@@ -22,8 +22,8 @@ class ScanJobRunner(val function: CommandLineFunction, val manager: ScanJobManag
 
   def getScanfsFiles(in : Seq[File]) : String = {
 
-    val scanfsFiles = in.filter(file => file.isAbsolute() && file.getPath().startsWith("scanfs:/"))
-    val absPaths = scanfsFiles.map(file => file.toString().replace("scanfs:/", "/mnt/scanfs/"))
+    val scanfsFiles = in.filter(file => file.getPath().indexOf("scanfs:/") != -1)
+    val absPaths = scanfsFiles.map(file => file.toString().substring(file.toString().indexOf("scanfs:/") + "scanfs:/".length()))
     absPaths.mkString(",")  
 
   } 
