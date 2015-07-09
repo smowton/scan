@@ -12,8 +12,8 @@ if len(sys.argv) != 2:
     sys.exit(1)
 
 id_db = btrfs_common.read_id_db()
-devname = id_db[argv[1]]
-del devname[argv[1]]
+devname = id_db[sys.argv[1]]
+del id_db[sys.argv[1]]
 
 out = subprocess.check_output(["/sbin/btrfs", "filesystem", "show"])
 
