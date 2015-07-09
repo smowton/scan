@@ -28,10 +28,13 @@ scanfs_root = "/mnt/scanfs"
 def reward_loss(reward_scale, delay):
 	return reward_scale[1] * delay
 
-def est_reward(estsize, size_time, thread_time, reward_scale, cores):
+# Time units: hours
+def actual_reward(reward_scale, actual_time):
+	return reward_scale[1] * (reward_scale[0] - actual_time)
 
+def est_reward(estsize, size_time, thread_time, reward_scale, cores):
 	multi_thread_time = est_time(estsize, size_time, thread_time, cores)
-	return reward_scale[1] * (reward_scale[0] - multi_thread_time)
+	return actual_reward(reward_scale, multi_thread_time)
 
 def est_time(estsize, size_time, thread_time, cores):
 	
@@ -212,11 +215,13 @@ class MulticlassScheduler:
 
 		self.scale_reward_loss = 0.0
 		self.queue_reward_loss = 0.0
+		self.total_reward = 0.0
 
 		# Adaptive scale selection parameters:
 		self.new_worker_wait_time = 0.1 # Unit: hours
 		self.worker_pool_size_threshold = 100
 		self.worker_pool_oversize_penalty = 10
+		self.worker_pool_size_dynamic = False
 
 		self.dfs_map = dict()
 
@@ -386,6 +391,11 @@ class MulticlassScheduler:
 						extra_penalty = (self.worker_pool_oversize_penalty * excess_cores)
 						report.append("Extra penalty due to hiring " + str(excess_cores) + " excess cores: " + str(extra_penalty))
 						total_loss_hiring += extra_penalty
+						if self.worker_pool_size_dynamic:
+							# Since we're evidently pushing on the limit, try raising it and see if
+							# we get a pressure notification in response.
+							self.worker_pool_size_threshold += 1
+							report.append("Incremented worker pool size limit, now %d" % self.worker_pool_size_threshold)
 
 					reward_choices[cores] -= min(total_loss_hiring, total_loss_waiting)
 					
@@ -737,8 +747,14 @@ class MulticlassScheduler:
 
 	                                runhours = (datetime.datetime.now() - rp.start_time).total_seconds() / (60 * 60)
 					newwph = float(workdone) / runhours
-	                                self.classes[rp.classname]["lastwph"] = newwph
+					jobclass = self.classes[rp.classname]
+	                                jobclass["lastwph"] = newwph
 	                                print "Task completed %g units of work in %g hours; new wph = %g" % (workdone, runhours, newwph)
+
+					if "time_reward" in jobclass and jobclass["time_reward"] is not None:
+						reward_gained = actual_reward(jobclass["time_reward"], runhours)
+						print "Reward gained: %f" % reward_gained
+						self.total_reward += reward_gained
         
 					del self.procs[pid]
 
@@ -961,11 +977,18 @@ class MulticlassScheduler:
         def getwph(self, classname):
                 return str(self.classes[classname]["lastwph"])
 
+	def gettotalreward(self):
+		return str(self.total_reward)
+
 	def getqueuerewardloss(self):
 		return str(self.queue_reward_loss)
 
 	def getscalerewardloss(self):
 		return str(self.scale_reward_loss)
+
+	def notifypressure(self, cut_factor):
+		self.worker_pool_size_threshold *= float(cut_factor)
+		self.worker_pool_size_dynamic = True
 
 class HttpQueue:
 
