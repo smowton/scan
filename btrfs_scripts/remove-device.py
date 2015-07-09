@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python
 
 import os
@@ -12,7 +11,9 @@ if len(sys.argv) != 2:
     print >>sys.stderr, "Usage: remove-device.py device-uuid"
     sys.exit(1)
 
-devname = "/dev/disk/by-uuid/" + sys.argv[1]
+id_db = btrfs_common.read_id_db()
+devname = id_db[argv[1]]
+del devname[argv[1]]
 
 out = subprocess.check_output(["/sbin/btrfs", "filesystem", "show"])
 
@@ -34,5 +35,7 @@ if ndevs is None:
 	raise Exception("btrfs filesystem show didn't describe an FS containing %s. Output:\n\n%s" % (devname, out))
 
 subprocess.check_call(["/sbin/btrfs", "device", "delete", devname, mountpoint])
+
+btrfs_common.write_id_db(id_db)
 
 

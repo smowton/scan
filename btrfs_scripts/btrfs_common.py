@@ -2,6 +2,8 @@
 import os
 import os.path
 import subprocess
+import json
+import glob
 
 mountpoint = "/mnt/scanfs"
 
@@ -21,3 +23,21 @@ def add_device(devname):
     else:
 
         subprocess.check_call(["/sbin/btrfs", "device", "add", devname, mountpoint])
+
+db_location = "/tmp/btrfs_device_ids"
+
+dev_search_root = "/dev/disk/by-id"
+
+def get_devs():
+    return glob.glob("%s/*" % dev_search_root)
+
+def read_id_db():
+
+    with open(db_location, "r") as f:
+        return json.load(f)
+
+def write_id_db(db):
+
+    with open(db_location, "w") as f:
+        json.dump(db, f)
+        

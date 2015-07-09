@@ -30,4 +30,9 @@ subprocess.check_call(["/sbin/losetup", loopdev, img_file])
 
 btrfs_common.add_device(loopdev)
 
+# Write the initial device DB
+
+devs = btrfs_common.get_devs()
+db = {"non-dynamic-%d" % i: d for (i, d) in enumerate(devs)}
+btrfs_common.write_id_db(db)
 
