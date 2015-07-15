@@ -59,6 +59,7 @@ public class ScanProbe extends Probe{
 		this.addProbeProperty(3, "workerUtilisation", ProbePropertyType.DOUBLE, "", "worker pool utilisation (1 = all active, 0 = all idle)");
 		this.addProbeProperty(4, "rewardLostToQueueing", ProbePropertyType.DOUBLE, "", "reward lost due to tasks queueing");
 		this.addProbeProperty(5, "rewardLostToSmallWorkers", ProbePropertyType.DOUBLE, "", "reward lost due to workers unable to offer sufficient local parallelism");
+		this.addProbeProperty(6, "totalReward", ProbePropertyType.DOUBLE, "", "total reward gained so far");
 		
 		int idx = 6;
 
@@ -163,6 +164,13 @@ public class ScanProbe extends Probe{
 
 	}	
 
+	private double getTotalReward() throws MalformedURLException, IOException {
+		
+		String v = getString("gettotalreward");
+		return Double.parseDouble(v);		
+
+	}
+
 	public ProbeMetric collectOrThrow() throws Exception {
 
 		HashMap<Integer,Object> values = new HashMap<Integer,Object>();
@@ -171,6 +179,7 @@ public class ScanProbe extends Probe{
 		double ut = getWorkerUtilisation();
 		double queueLoss = getRewardLossToQueueing();
 		double scaleLoss = getRewardLossToSmallWorkers();
+		double totalReward = getTotalReward();
 
 		values.put(0, qlen);
 		values.put(1, (double)0);
@@ -178,6 +187,7 @@ public class ScanProbe extends Probe{
 		values.put(3, ut);
 		values.put(4, queueLoss);
 		values.put(5, scaleLoss);
+		values.put(6, totalReward);
 
 		int offset = 0;
 			
@@ -204,6 +214,7 @@ public class ScanProbe extends Probe{
 		catch(Exception e) {
 
 			System.err.printf("Exception collection SCAN probe data: %s\n", e.toString());
+			e.printStackTrace(System.err);
 			return new ProbeMetric(new HashMap<Integer, Object>());
 
 		}

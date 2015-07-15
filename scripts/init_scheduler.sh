@@ -103,8 +103,6 @@ wget http://cs448.user.srcf.net/in.bam.bai
 
 cd ~/scan/jc_probes
 echo "probes_external=ScanProbe,`pwd`/ScanProbe.jar" >> /usr/local/bin/JCatascopiaAgentDir/resources/agent.properties
-service JCatascopia-Agent stop
-service JCatascopia-Agent start
 
 # Fetch Queue:
 cd /mnt/nfs
@@ -112,8 +110,11 @@ wget http://cs448.user.srcf.net/Queue-3.1-smowton.jar
 
 # Start the scheduler
 cd ~/scan
-~/scan/tinysched.py ~/scan/queue_scripts/gatk_pipeline_classes.py gatk_ssh_username=root gatk_init_cores=4 gatk_init_mem=8192 &
+~/scan/tinysched.py ~/scan/queue_scripts/gatk_pipeline_classes.py &
 ~/scan/await_server.py
+
+service JCatascopia-Agent stop
+service JCatascopia-Agent start
 
 # Note that we're ready
 ss-set sched_address `ss-get hostname`
