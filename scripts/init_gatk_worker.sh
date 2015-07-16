@@ -1,6 +1,8 @@
 #!/bin/bash
 # Ready a worker, based on Ubuntu Server LTS / 14.04 Okeanos image:
 
+apt-get update
+
 apt-get -y install cifs-utils default-jre python python-dev python-pip
 pip install cherrypy
 
@@ -45,8 +47,11 @@ SCHED_ADDRESS=`ss-get --timeout 3600 scheduler.1:sched_address`
 
 echo $SCHED_ADDRESS > ~/scan_sched_address
 
+# Initialise SCANFS here
+python ~/scan/btrfs_scripts/add-root-device.py
+
 # Machine is now ready to be a GATK worker. Register it:
-~/scan/register_worker.py $SCHED_ADDRESS $WORKER_CLASS > ~/scan_worker_id
+~/scan/register_worker.py $SCHED_ADDRESS > ~/scan_worker_id
 
 WORKER_ID=`cat ~/scan_worker_id`
 
@@ -57,7 +62,6 @@ cd ~/scan/jc_probes
 echo "/usr/local/bin/JCatascopiaAgentDir" > /etc/scan_probe
 echo "probes_external=ScanWorkerProbe,`pwd`/ScanProbe.jar" >> /usr/local/bin/JCatascopiaAgentDir/resources/agent.properties
 echo "host=$SCHED_ADDRESS" >> /usr/local/bin/JCatascopiaAgentDir/resources/scanprobe.properties
-echo "class=$WORKER_CLASS" >> /usr/local/bin/JCatascopiaAgentDir/resources/scanprobe.properties
 echo "workerid=$WORKER_ID" >> /usr/local/bin/JCatascopiaAgentDir/resources/scanprobe.properties
 service JCatascopia-Agent stop
 service JCatascopia-Agent start

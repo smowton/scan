@@ -26,10 +26,8 @@ def add_device(devname):
 
 db_location = "/tmp/btrfs_device_ids"
 
-dev_search_root = "/dev/disk/by-id"
-
 def get_devs():
-    return glob.glob("%s/*" % dev_search_root)
+    return glob.glob("/dev/vd?")
 
 def read_id_db():
 

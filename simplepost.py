@@ -7,7 +7,7 @@ def post(host, port, address, params):
 
     params = urllib.urlencode(params)
     headers = {"Content-type": "application/x-www-form-urlencoded"}
-    conn = httplib.HTTPConnection(host, port, strict=False, timeout=5)
+    conn = httplib.HTTPConnection(host, port, strict=False, timeout=30)
     conn.request("POST", address, params, headers)
     response = conn.getresponse()
     if response.status != 200:
