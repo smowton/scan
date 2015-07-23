@@ -54,12 +54,10 @@ public class ScanProbe extends Probe{
 		}
 			
 		this.addProbeProperty(0, "queueLength",ProbePropertyType.LONG,"", "queue length");
-		this.addProbeProperty(1, "avgCpuUsage", ProbePropertyType.DOUBLE, "", "average task CPU usage");
-		this.addProbeProperty(2, "avgMemoryUsage", ProbePropertyType.DOUBLE, "", "average task memory usage");
-		this.addProbeProperty(3, "workerUtilisation", ProbePropertyType.DOUBLE, "", "worker pool utilisation (1 = all active, 0 = all idle)");
-		this.addProbeProperty(4, "rewardLostToQueueing", ProbePropertyType.DOUBLE, "", "reward lost due to tasks queueing");
-		this.addProbeProperty(5, "rewardLostToSmallWorkers", ProbePropertyType.DOUBLE, "", "reward lost due to workers unable to offer sufficient local parallelism");
-		this.addProbeProperty(6, "totalReward", ProbePropertyType.DOUBLE, "", "total reward gained so far");
+		this.addProbeProperty(1, "workerUtilisation", ProbePropertyType.DOUBLE, "", "worker pool utilisation (1 = all cores active, 0 = all idle)");
+		this.addProbeProperty(2, "rewardLostToQueueing", ProbePropertyType.DOUBLE, "", "reward lost due to tasks queueing");
+		this.addProbeProperty(3, "rewardLostToSmallWorkers", ProbePropertyType.DOUBLE, "", "reward lost due to workers unable to offer sufficient local parallelism");
+		this.addProbeProperty(4, "totalReward", ProbePropertyType.DOUBLE, "", "total reward gained so far");
 		
 		int idx = 6;
 
@@ -125,21 +123,21 @@ public class ScanProbe extends Probe{
 		InputStream is = getStream("lsworkers");
 		JSONTokener tok = new JSONTokener(is);
 		JSONObject a = new JSONObject(tok);
-		long totalWorkers = a.length();
-		long busyWorkers = 0;
+		long totalCores = 0;
+		long freeCores = 0;
 
 		for(Iterator<String> keys = a.keys(); keys.hasNext();) {
 
 			JSONObject val = a.getJSONObject(keys.next());
-			if(val.getBoolean("busy"))
-				++busyWorkers;
+			totalCores += val.getInt("cores");
+			freeCores += val.getInt("free_cores");
 
 		}
 
-		if(totalWorkers == 0)
+		if(totalCores == 0)
 			return 0;
 		else
-			return ((double)busyWorkers) / totalWorkers;
+			return 1 - ((double)freeCores) / totalCores;
 
 	}
 
@@ -182,14 +180,12 @@ public class ScanProbe extends Probe{
 		double totalReward = getTotalReward();
 
 		values.put(0, qlen);
-		values.put(1, (double)0);
-		values.put(2, (double)0);
-		values.put(3, ut);
-		values.put(4, queueLoss);
-		values.put(5, scaleLoss);
-		values.put(6, totalReward);
+		values.put(1, ut);
+		values.put(2, queueLoss);
+		values.put(3, scaleLoss);
+		values.put(4, totalReward);
 
-		int offset = 0;
+		int offset = 5;
 			
 		for(String c : classes) {
 	
