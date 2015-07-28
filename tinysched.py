@@ -17,6 +17,7 @@ import math
 import os.path
 import random
 import numpy
+import os
 
 import scan_templates
 import integ_analysis.results
@@ -290,8 +291,9 @@ class MulticlassScheduler:
         def ping(self, echo):
                 return json.dumps({"echo": echo})
 
-	def getcopier(self, worker, fromfiles, topath, copyout = True):
+	def getcopier(self, worker, fromfiles, topath, copyout = True, extra_args = []):
 		cmdline = copy.deepcopy(copier)
+		cmdline.extend(extra_args)
 		if copyout:
 			cmdline.extend(fromfiles)
 			cmdline.append("%s@%s:%s" % (self.worker_login_username, worker.address, topath))
@@ -299,6 +301,9 @@ class MulticlassScheduler:
 			cmdline.extend(["%s@%s:%s" % (self.worker_login_username, worker.address, f) for f in fromfiles])
 			cmdline.append(topath)
 		return cmdline
+
+	def getdfscopier(self, worker, fromfiles, topath, copyout = True):
+		return self.getcopier(worker, fromfiles, topath, copyout = copyout, extra_args = ["-i", "/home/%s/.ssh/scanfs_key" % self.worker_login_username])
 
         def getrunner(self, worker):
                 cmdline = copy.deepcopy(runner)
@@ -420,8 +425,14 @@ class MulticlassScheduler:
 
 			this_w_cores = min(maxcores, w.free_cores, w.free_memory / proc.mempercore)
 			this_w_missing_files = sum(score_file(f, w.wid) for f in proc.filesin)
+
+			def missing_files_better(oldval, newval):
+				if os.getenv("SCAN_DFS_TEST") is not None:
+					return newval > oldval
+				else:
+					return newval < oldval
 			
-			if best_worker is None or this_w_cores > will_use_cores or (this_w_cores == will_use_cores and this_w_missing_files < missing_files):
+			if best_worker is None or this_w_cores > will_use_cores or (this_w_cores == will_use_cores and missing_files_better(missing_files, this_w_missing_files)):
 				best_worker = w
 				will_use_cores = this_w_cores
 				missing_files = this_w_missing_files
@@ -536,7 +547,7 @@ class MulticlassScheduler:
 				create_donefile = self.abs_done_file(needf)
 				# Pick some worker that already has the file:
 				copy_from = self.workers[random.choice(dfsstat["complete"])]
-				copier = self.getcopier(copy_from, [abs_local_path], abs_local_path, copyout = False)
+				copier = self.getdfscopier(copy_from, [abs_local_path], abs_local_path, copyout = False)
 				cmd = "%s || exit 1; touch %s; %s" % (" ".join(copier), create_donefile, cmd)
 				dfsstat["pending"].append(run_worker.wid)
 				print "Required file", needf, "will be copied from", copy_from.address
@@ -584,7 +595,7 @@ class MulticlassScheduler:
 						print "No workers remaining! The DFS loses the file"
 						continue
 					print "Only removed worker has file %s; giving to %s / %s" % (f, give_to_worker.address, give_to_worker.wid)
-					copier = self.getcopier(give_to_worker, [self.abs_dfs_file(f)], self.abs_dfs_file(f))
+					copier = self.getdfscopier(give_to_worker, [self.abs_dfs_file(f)], self.abs_dfs_file(f))
 					runner = self.getrunner(freed_worker)
 					runner.append(copier)
 					try:
@@ -846,7 +857,7 @@ class MulticlassScheduler:
                         self.workers[newworker.wid] = newworker
 
 			# Enable worker-to-worker SSH:
-			copycmd = self.getcopier(newworker, [os.path.join(os.path.expanduser("~"), ".ssh/id_rsa")], "/home/%s/.ssh" % self.worker_login_username)
+			copycmd = self.getcopier(newworker, [os.path.join(os.path.expanduser("~"), ".ssh/id_rsa")], "/home/%s/.ssh/scanfs_key" % self.worker_login_username)
 			subprocess.check_call(copycmd)
 
 			# Get existing DFS map, if any:
