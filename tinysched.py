@@ -18,6 +18,7 @@ import os.path
 import random
 import numpy
 import os
+import shutil
 
 import scan_templates
 import integ_analysis.results
@@ -184,6 +185,8 @@ class SubmitUI:
 </form></body></html>""" % (self.mktemplatecombo(), self.mkclasscombo())
 
 class MulticlassScheduler:
+
+	@cherrypy.config(**{'response.timeout': 3600})
 
         def __init__(self, httpqueue, classfile, classargs):
 
@@ -1001,6 +1004,35 @@ class MulticlassScheduler:
 		self.worker_pool_size_threshold *= float(cut_factor)
 		self.worker_pool_size_dynamic = True
 
+	def dfsput(self, path):
+
+		if path.startswith("/"):
+			path = path[1:]
+
+		with self.lock:
+			if path in self.dfs_map:
+				raise Exception("File already in DFS")
+			put_worker = random.choice([v for v in self.workers.values() if not v.delete_pending])
+			self.dfs_map[path] = {"pending": [put_worker.wid], "complete": []}
+			
+		put_path = os.path.join(scanfs_root, path)
+		put_path_dirname, put_path_basename = os.path.split(put_path)
+		put_donefile = os.path.join(put_path_dirname, ".%s.done" % put_path_basename)
+
+		put_cmd = self.getrunner(put_worker)
+		put_cmd.extend(["/bin/cat", "-", ">", put_path, ";", "touch", put_donefile])
+		put_proc = subprocess.Popen(put_cmd, stdin=subprocess.PIPE)
+		try:
+			shutil.copyfileobj(cherrypy.request.body, put_proc.stdin)
+			put_proc.stdin.close()
+		except Exception as e:
+			with self.lock:
+				del self.dfs_map[path]
+			raise e
+
+		with self.lock:
+			self.dfs_map[path] = {"complete": [put_worker.wid], "pending": []}
+
 class HttpQueue:
 
         def __init__(self):
@@ -1100,6 +1132,7 @@ cherrypy.engine.subscribe("stop", thread_stop)
 
 cherrypy.server.socket_host = '0.0.0.0'
 cherrypy.server.thread_pool = 100
+cherrypy.server.max_request_body_size = 1024 ** 4
 
 cherrypy.quickstart(sched)
 
