@@ -1020,7 +1020,7 @@ class MulticlassScheduler:
 		put_donefile = os.path.join(put_path_dirname, ".%s.done" % put_path_basename)
 
 		put_cmd = self.getrunner(put_worker)
-		put_cmd.extend(["/bin/cat", "-", ">", put_path, ";", "touch", put_donefile])
+		put_cmd.extend(["/bin/mkdir", "-p", put_path_dirname, ";", "/bin/cat", "-", ">", put_path, ";", "touch", put_donefile])
 		put_proc = subprocess.Popen(put_cmd, stdin=subprocess.PIPE)
 		try:
 			shutil.copyfileobj(cherrypy.request.body, put_proc.stdin)
