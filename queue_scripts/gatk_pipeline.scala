@@ -141,9 +141,9 @@ class VarCallingPipeline extends QScript {
 
   def script {
 
-    val genome = new File(pathjoin(refdir, "Homo_sapiens.GRCh37.56.dna.chromosomes_and_MT.fa"))
-    val dbsnp = new File(pathjoin(refdir, "dbsnp_138.hg19_with_b37_names.vcf"))
-    val indels = new File(pathjoin(refdir, "1kg.pilot_release.merged.indels.sites.hg19.human_g1k_v37.vcf"))
+    val genome = new File(pathjoin(refdir, "ref.fa"))
+    #val dbsnp = new File(pathjoin(refdir, "dbsnp_138.hg19_with_b37_names.vcf"))
+    #val indels = new File(pathjoin(refdir, "1kg.pilot_release.merged.indels.sites.hg19.human_g1k_v37.vcf"))
 
     val realignTargets = new File(pathjoin(workdir, "realign_targets.intervals"))
     val realignedBam = new File(pathjoin(workdir, "realigned.bam"))
@@ -159,6 +159,9 @@ class VarCallingPipeline extends QScript {
 
       // Received wisdom re: GATK and memory demand:
       c.javaMemoryLimit = Some(6)
+
+      // Generic settings for GATK tasks:
+      c.jobNativeArgs = List("estsize", "1", "mempercore", "1")
 
       // Don't require the CWD to be accessible remotely:
       c.commandDirectory = workdir
@@ -206,7 +209,7 @@ class VarCallingPipeline extends QScript {
     val RTC = new RealignerTargetCreator with ExtraArgs with MeasureReference with OverrideTempDir
     RTC.reference_sequence = genome
     RTC.input_file = List(inputFile)
-    RTC.known = List(indels)
+    #RTC.known = List(indels)
     RTC.out = realignTargets
     RTC.jobQueue = "gatk_rtc"
     RTC.extraArgs = List("-nt", "$SCAN_CORES")
@@ -215,7 +218,7 @@ class VarCallingPipeline extends QScript {
 
     val IR = new IndelRealigner with MeasureInput with OverrideTempDir
     IR.reference_sequence = genome
-    IR.known = List(indels)
+    #IR.known = List(indels)
     IR.input_file = List(inputFile)
     IR.targetIntervals = realignTargets
     IR.out = realignedBam
@@ -227,7 +230,7 @@ class VarCallingPipeline extends QScript {
     val BR = new BaseRecalibrator with ExtraArgs with MeasureReference with OverrideTempDir
     BR.reference_sequence = genome
     BR.input_file = List(realignedBam)
-    BR.knownSites = List(indels, dbsnp)
+    #BR.knownSites = List(indels, dbsnp)
     BR.covariate = List("ReadGroupCovariate", "QualityScoreCovariate", "CycleCovariate", "ContextCovariate")
     BR.out = recalData
     BR.jobQueue = "gatk_br"
@@ -251,7 +254,7 @@ class VarCallingPipeline extends QScript {
     UG.glm = GenotypeLikelihoodsCalculationModel.Model.BOTH
     UG.stand_call_conf = 30.0
     UG.stand_emit_conf = 10.0
-    UG.dbsnp = dbsnp
+    #UG.dbsnp = dbsnp
     UG.out = unfilteredCalls
     UG.jobQueue = "gatk_ug"
     UG.extraArgs = List("-nt", "$SCAN_CORES")
@@ -262,7 +265,7 @@ class VarCallingPipeline extends QScript {
     VF.reference_sequence = genome
     VF.variant = unfilteredCalls
     VF.out = filteredCalls
-    VF.mask = indels
+    #VF.mask = indels
     VF.filterExpression = List("MQ0 >= 4 && ((MQ0 / (1.0 * DP)) > 0.1)", "QUAL < 30.0 || QD < 5.0")
     VF.filterName = VF.filterExpression.map(x => x.replace(">", ")").replace("<", "(").replace("=","_"))
     VF.clusterWindowSize = 10
@@ -272,7 +275,7 @@ class VarCallingPipeline extends QScript {
 
     val VE = new VariantEval with ExtraArgs with MeasureReference with OverrideTempDir
     VE.reference_sequence = genome
-    VE.dbsnp = dbsnp
+    #VE.dbsnp = dbsnp
     VE.eval = List(filteredCalls)
     VE.out = finalCalls
     VE.jobQueue = "gatk_ve"
