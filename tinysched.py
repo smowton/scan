@@ -271,7 +271,9 @@ class MulticlassScheduler:
         @cherrypy.expose
         def default(self, callname, **kwargs):
                 
-                if "set_ct" not in kwargs:
+		if callname == "dfsget":
+			pass
+		elif "set_ct" not in kwargs:
                         cherrypy.response.headers['Content-Type'] = "application/json"
                 else:
                         del kwargs["set_ct"]
@@ -536,7 +538,8 @@ class MulticlassScheduler:
 			try:
 				dfsstat = self.dfs_map[needf]
 			except KeyError:
-				raise Exception("Process needs file %s which is not in the SCAN DFS" % needf)
+				print >>sys.stderr, "Process wants file %s which is not in the SCAN DFS" % needf
+				continue
 			if run_worker.wid in dfsstat["complete"]:
 				print "Required file", needf, "already present"
 				pass
@@ -551,9 +554,12 @@ class MulticlassScheduler:
 				# Pick some worker that already has the file:
 				copy_from = self.workers[random.choice(dfsstat["complete"])]
 				copier = self.getdfscopier(copy_from, [abs_local_path], abs_local_path, copyout = False)
-				cmd = "%s || exit 1; touch %s; %s" % (" ".join(copier), create_donefile, cmd)
+				cmd = "mkdir -p %s; %s || exit 1; touch %s; %s" % (os.path.split(abs_local_path)[0], " ".join(copier), create_donefile, cmd)
 				dfsstat["pending"].append(run_worker.wid)
 				print "Required file", needf, "will be copied from", copy_from.address
+
+		# Prepend output directory creation
+		cmd = "%s; %s" % ("; ".join(["mkdir -p %s" % os.path.dirname(self.abs_dfs_file(x)) for x in np.filesout]), cmd)
 
                 cmdline.append(cmd)
 
@@ -727,7 +733,11 @@ class MulticlassScheduler:
 
 					# Promote pending files:
 					for copiedf in rp.filesin:
-						dfsstat = self.dfs_map[copiedf]
+						try:
+							dfsstat = self.dfs_map[copiedf]
+						except KeyError:
+							# Can't have been present at the start
+							continue
 						if freed_worker.wid in dfsstat["pending"]:
 							print copiedf, "successfully copied to", freed_worker.address, "/", freed_worker.wid
 							dfsstat["pending"].remove(freed_worker.wid)
@@ -776,7 +786,11 @@ class MulticlassScheduler:
 
 					# For now just assume file copying failed:
 					for failedf in rp.filesin:
-						dfsstat = self.dfs_map[failedf]
+						try:
+							dfsstat = self.dfs_map[failedf]
+						except KeyError:
+							# Probably not present at the beginning; possibly removed in the interim
+							continue
 						if freed_worker.wid in dfsstat["pending"]:
 							print "Assuming task also failed to copy", failedf
 							dfsstat["pending"].remove(freed_worker.wid)
@@ -1014,6 +1028,8 @@ class MulticlassScheduler:
 				raise Exception("File already in DFS")
 			put_worker = random.choice([v for v in self.workers.values() if not v.delete_pending])
 			self.dfs_map[path] = {"pending": [put_worker.wid], "complete": []}
+
+		print >>sys.stderr, "Uploading", path, "to", put_worker.address, "/", put_worker.wid
 			
 		put_path = os.path.join(scanfs_root, path)
 		put_path_dirname, put_path_basename = os.path.split(put_path)
@@ -1025,6 +1041,9 @@ class MulticlassScheduler:
 		try:
 			shutil.copyfileobj(cherrypy.request.body, put_proc.stdin)
 			put_proc.stdin.close()
+			ret = put_proc.wait()
+			if ret != 0:
+				raise Exception("Unexpected return code %d" % ret)
 		except Exception as e:
 			with self.lock:
 				del self.dfs_map[path]
@@ -1032,6 +1051,58 @@ class MulticlassScheduler:
 
 		with self.lock:
 			self.dfs_map[path] = {"complete": [put_worker.wid], "pending": []}
+
+	def dfsget(self, path):
+		
+		if path.startswith("/"):
+			path = path[1:]
+
+		with self.lock:
+			if path not in self.dfs_map:
+				raise Exception("Not found")
+			if len(self.dfs_map[path]["complete"]) == 0:
+				raise Exception("No replicas")
+			get_wid = random.choice(self.dfs_map[path]["complete"])
+
+		get_worker = self.workers[get_wid]
+		get_path = os.path.join(scanfs_root, path)
+		
+		print "Get", path, "from", get_worker.address, "/", get_worker.wid
+		get_cmd = self.getrunner(get_worker)
+		get_cmd.extend(["/bin/cat", get_path])
+		get_proc = subprocess.Popen(get_cmd, stdout=subprocess.PIPE)
+
+		return cherrypy.lib.static.serve_fileobj(get_proc.stdout)		
+
+	def dfsfind(self):
+
+		with self.lock:
+			return json.dumps(self.dfs_map)
+
+	def dfsrm(self, path):
+
+		if path.startswith("/"):
+			path = path[1:]
+
+		with self.lock:
+			if path not in self.dfs_map:
+				raise Exception("Not found")
+			if len(self.dfs_map[path]["pending"]) != 0:
+				raise Exception("In use")
+			delfrom = self.dfs_map[path]["complete"]
+			del self.dfs_map[path]
+
+		real_path = os.path.join(scanfs_root, path)
+		dirname, basename = os.path.split(real_path)
+		donefile_path = os.path.join(dirname, ".%s.done" % basename)
+
+		for wid in delfrom:
+
+			worker = self.workers[wid]
+			print >>sys.stderr, "Delete", path, "from", worker.address, "/", worker.wid
+			cmd = self.getrunner(worker)
+			cmd.extend(["/bin/rm", real_path, ";", "/bin/rm", donefile_path])
+			subprocess.check_call(cmd)
 
 class HttpQueue:
 

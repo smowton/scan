@@ -80,6 +80,20 @@ trait OverrideTempDir extends JavaCommandLineFunction {
 
 }
 
+trait NeedsFastaIndex extends CommandLineFunction {
+
+  override def inputs : Seq[File] = {
+
+    val oldInputs = super.inputs
+    val fastaInputs = oldInputs.filter(x => x.toString.endsWith(".fa") || x.toString.endsWith(".fasta"))
+    val faiInputs = fastaInputs.map(x => new File(x.toString() + ".fai"))
+    val dictInputs = fastaInputs.map(x => new File(x.toString().substring(0, x.toString().lastIndexOf('.')) + ".dict"))
+    oldInputs ++ faiInputs ++ dictInputs
+
+  }
+
+}
+
 class HttpFetch extends InProcessFunction {
 
   var url : String = _
@@ -142,8 +156,8 @@ class VarCallingPipeline extends QScript {
   def script {
 
     val genome = new File(pathjoin(refdir, "ref.fa"))
-    #val dbsnp = new File(pathjoin(refdir, "dbsnp_138.hg19_with_b37_names.vcf"))
-    #val indels = new File(pathjoin(refdir, "1kg.pilot_release.merged.indels.sites.hg19.human_g1k_v37.vcf"))
+    val dbsnp = new File(pathjoin(refdir, "dbsnp.vcf"))
+    //val indels = new File(pathjoin(refdir, "1kg.pilot_release.merged.indels.sites.hg19.human_g1k_v37.vcf"))
 
     val realignTargets = new File(pathjoin(workdir, "realign_targets.intervals"))
     val realignedBam = new File(pathjoin(workdir, "realigned.bam"))
@@ -206,19 +220,19 @@ class VarCallingPipeline extends QScript {
       else
         new File(input)
 
-    val RTC = new RealignerTargetCreator with ExtraArgs with MeasureReference with OverrideTempDir
+    val RTC = new RealignerTargetCreator with ExtraArgs with MeasureReference with OverrideTempDir with NeedsFastaIndex
     RTC.reference_sequence = genome
     RTC.input_file = List(inputFile)
-    #RTC.known = List(indels)
+    RTC.known = List(dbsnp)
     RTC.out = realignTargets
     RTC.jobQueue = "gatk_rtc"
     RTC.extraArgs = List("-nt", "$SCAN_CORES")
     
     gatk_add(RTC, 0)
 
-    val IR = new IndelRealigner with MeasureInput with OverrideTempDir
+    val IR = new IndelRealigner with MeasureInput with OverrideTempDir with NeedsFastaIndex
     IR.reference_sequence = genome
-    #IR.known = List(indels)
+    IR.known = List(dbsnp)
     IR.input_file = List(inputFile)
     IR.targetIntervals = realignTargets
     IR.out = realignedBam
@@ -227,10 +241,10 @@ class VarCallingPipeline extends QScript {
 
     gatk_add(IR, 1)
 
-    val BR = new BaseRecalibrator with ExtraArgs with MeasureReference with OverrideTempDir
+    val BR = new BaseRecalibrator with ExtraArgs with MeasureReference with OverrideTempDir with NeedsFastaIndex
     BR.reference_sequence = genome
     BR.input_file = List(realignedBam)
-    #BR.knownSites = List(indels, dbsnp)
+    BR.knownSites = List(dbsnp)
     BR.covariate = List("ReadGroupCovariate", "QualityScoreCovariate", "CycleCovariate", "ContextCovariate")
     BR.out = recalData
     BR.jobQueue = "gatk_br"
@@ -238,7 +252,7 @@ class VarCallingPipeline extends QScript {
 
     gatk_add(BR, 2)
 
-    val PR = new PrintReads with ExtraArgs with MeasureInput with OverrideTempDir
+    val PR = new PrintReads with ExtraArgs with MeasureInput with OverrideTempDir with NeedsFastaIndex
     PR.reference_sequence = genome
     PR.input_file = List(realignedBam)
     PR.BQSR = recalData
@@ -248,24 +262,24 @@ class VarCallingPipeline extends QScript {
 
     gatk_add(PR, 3)
 
-    val UG = new UnifiedGenotyper with ExtraArgs with MeasureReference with OverrideTempDir
+    val UG = new UnifiedGenotyper with ExtraArgs with MeasureReference with OverrideTempDir with NeedsFastaIndex
     UG.reference_sequence = genome
     UG.input_file = List(recalBam)
     UG.glm = GenotypeLikelihoodsCalculationModel.Model.BOTH
     UG.stand_call_conf = 30.0
     UG.stand_emit_conf = 10.0
-    #UG.dbsnp = dbsnp
+    UG.dbsnp = dbsnp
     UG.out = unfilteredCalls
     UG.jobQueue = "gatk_ug"
     UG.extraArgs = List("-nt", "$SCAN_CORES")
 
     gatk_add(UG, 4)
 
-    val VF = new VariantFiltration with MeasureVariant with OverrideTempDir
+    val VF = new VariantFiltration with MeasureVariant with OverrideTempDir with NeedsFastaIndex
     VF.reference_sequence = genome
     VF.variant = unfilteredCalls
     VF.out = filteredCalls
-    #VF.mask = indels
+    //VF.mask =
     VF.filterExpression = List("MQ0 >= 4 && ((MQ0 / (1.0 * DP)) > 0.1)", "QUAL < 30.0 || QD < 5.0")
     VF.filterName = VF.filterExpression.map(x => x.replace(">", ")").replace("<", "(").replace("=","_"))
     VF.clusterWindowSize = 10
@@ -273,9 +287,9 @@ class VarCallingPipeline extends QScript {
 
     gatk_add(VF, 5)
 
-    val VE = new VariantEval with ExtraArgs with MeasureReference with OverrideTempDir
+    val VE = new VariantEval with ExtraArgs with MeasureReference with OverrideTempDir with NeedsFastaIndex
     VE.reference_sequence = genome
-    #VE.dbsnp = dbsnp
+    VE.dbsnp = dbsnp
     VE.eval = List(filteredCalls)
     VE.out = finalCalls
     VE.jobQueue = "gatk_ve"
