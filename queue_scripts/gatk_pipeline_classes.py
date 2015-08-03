@@ -11,7 +11,7 @@ def getclasses():
     quick_classes = ["vf"]
     quick_classes.extend([x for x in gatkclasses if "_gather" in gatkclasses])
 
-    return {k: {"description": "GATK class %s" % k, 
+    return {"gatk_%s" % k: {"description": "GATK class %s" % k, 
                 "time_reward": (1.0, 1.0) if k not in quick_classes else (0.1, 1.0), 
                 "size_time": (0.1, 0.5) if k not in quick_classes else (0.05, 0.05),
                 "thread_time": 0.8 if k not in singlethread_classes else 0.0} 
