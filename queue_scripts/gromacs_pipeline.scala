@@ -1,6 +1,6 @@
 import org.broadinstitute.sting.queue.QScript
 import org.broadinstitute.sting.queue.function.CommandLineFunction
-  import org.broadinstitute.sting.commandline.{Input, Output}
+import org.broadinstitute.sting.commandline.{Input, Output}
 
 import java.io.File
 

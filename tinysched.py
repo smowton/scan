@@ -673,6 +673,10 @@ class MulticlassScheduler:
 		sizes = [x for (x, y) in model_records]
 		hours = [inverse_est_time(y.total_seconds() / (60 * 60), select_cores, self.classes[classname]["thread_time"]) for (x, y) in model_records]
 
+		if all([s == sizes[0] for s in sizes]):
+			print >>sys.stderr, "Unable to update model because all job sizes are the same"
+			return
+
 		gradient, icpt = simple_linreg(sizes, hours)
 		print "Updated model for class %s: time = %f(estsize) + %f" % (classname, gradient, icpt)
 		self.classes[classname]["size_time"] = (icpt, gradient)
