@@ -4,8 +4,17 @@
 
 apt-get update
 
-apt-get -y install cifs-utils default-jre python python-dev python-pip
+apt-get -y install cifs-utils default-jre python python-dev python-pip libz-dev liblapack-dev libblas-dev
 pip install cherrypy
+
+# Install GROMACS:
+cd /home/user
+wget http://cs448.user.srcf.net/gmxdist.tar.gz
+tar xvzf gmxdist.tar.gz
+cd gromacs-5.0.1/build
+make install
+
+cd ~
 
 SERVER_IP=$(ss-get orchestrator-okeanos:hostname)
 CELAR_REPO=http://snf-175960.vm.okeanos.grnet.gr
