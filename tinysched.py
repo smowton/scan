@@ -477,6 +477,19 @@ class MulticlassScheduler:
 		if best_worker is None:
 			run_attr = None
 		else:
+
+			history = self.classes[proc.classname]["time_history"]
+			if len(history) > 3 and all([cores == will_use_cores for (size, cores, tm) in history]):
+				changed = False
+				if will_use_cores > 1:
+					will_use_cores /= 2
+					changed = True
+				elif will_use_cores == 1 and slots_available[2] != 0:
+					will_use_cores = 2
+					changed = True
+				if changed:
+					print >>sys.stderr, "Changed core count in order to measure scalability"
+
 			report.append("Selected worker " + best_worker.address + " / " + str(best_worker.wid) + " with " + str(will_use_cores) + " cores and " + str(missing_files) + " missing files.")
 			run_attr = {"cores": will_use_cores, "memory": proc.mempercore * will_use_cores}
 
@@ -723,9 +736,10 @@ class MulticlassScheduler:
                                 freed_worker.free_cores += rp.run_attributes["cores"]
 				freed_worker.free_memory += rp.run_attributes["memory"]
 				freed_worker.running_processes.remove(rp)
-				
-				self.classes[rp.classname]["time_history"].append((rp.estsize, rp.run_attributes["cores"], datetime.datetime.now() - rp.start_time))
-				self.update_class_model(rp.classname)
+
+				if ret == 0:
+					self.classes[rp.classname]["time_history"].append((rp.estsize, rp.run_attributes["cores"], datetime.datetime.now() - rp.start_time))
+					self.update_class_model(rp.classname)
 
 				self.update_worker_resource_stats(freed_worker)
 
