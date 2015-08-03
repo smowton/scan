@@ -92,11 +92,10 @@ echo $SCAN_DB_HOST > /mnt/nfs/scan_db_hostname
 
 # Set up test environment:
 # Make sure test_workdir is usable by remote users
-sudo -u nobody mkdir /mnt/nfs/test_workdir
-mkdir /mnt/nfs/test_input
-cd /mnt/nfs/test_input
-wget http://cs448.user.srcf.net/in.bam
-wget http://cs448.user.srcf.net/in.bam.bai
+sudo -u nobody mkdir /mnt/nfs/gromacs
+cd /mnt/nfs/gromacs
+wget http://cs448.user.srcf.net/gmxscripts.tar.gz
+tar xvzf gmxscripts.tar.gz
 
 # Register probe with JC agent:
 ~/scan/scripts/build_probes.sh
