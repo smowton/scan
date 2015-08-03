@@ -39,12 +39,12 @@ class GromacsScript extends QScript {
   @Argument
   var workdir : String = _
 
-    def gromadd(c : CommandLineFunction, cores : Integer) {
+    def gromadd(c : CommandLineFunction, cores : Integer, classname : String) {
 
     c.jobNativeArgs = List("estsize", "1", "mempercore", "1")
     c.commandDirectory = workdir
     c.jobLocalDir = "/tmp"
-    c.jobQueue = "gatk_rtc" // TODO update
+    c.jobQueue = classname
     c.nCoresRequest = Some(cores)
     
     add(c)
@@ -64,7 +64,7 @@ class GromacsScript extends QScript {
       val tprout = PH.pathjoin(workdir, to + ".tpr")
 
       val cmd = List("/usr/local/gromacs/bin/grompp", "-f", "/mnt/nfs/gromacs/" + from + ".mdp", "-c", groin, "-p", topin, "-pp", topout, "-o", tprout).mkString(" ")
-      gromadd(new GenericCmd(List(new File(topin), new File(groin), new File(posrein)), List(new File(topout), new File(tprout)), cmd), 1)
+      gromadd(new GenericCmd(List(new File(topin), new File(groin), new File(posrein)), List(new File(topout), new File(tprout)), cmd), 1, "gmx_grompp")
 
     }
 
@@ -77,8 +77,8 @@ class GromacsScript extends QScript {
       val trrout = PH.pathjoin(workdir, stage + ".trr");
       val groout = PH.pathjoin(workdir, stage + ".gro");
 
-      val cmd = List("/usr/local/gromacs/bin/mdrun", "-v", "-deffnm", stage).mkString(" ");
-      gromadd(new GenericCmd(List(new File(tprin), new File(topin)), List(new File(trrout), new File(groout)), cmd), 16)
+      val cmd = List("/usr/local/gromacs/bin/mdrun", "-v", "-deffnm", stage, "-ntomp", "$SCAN_CORES").mkString(" ");
+      gromadd(new GenericCmd(List(new File(tprin), new File(topin)), List(new File(trrout), new File(groout)), cmd), 16, "gmx_" + stage.toLowerCase())
 
     }
 

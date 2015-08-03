@@ -4,7 +4,7 @@
 
 apt-get update
 
-apt-get -y install cifs-utils default-jre python python-dev python-pip libz-dev liblapack-dev libblas-dev
+apt-get -y install cifs-utils default-jre python python-dev python-pip libz-dev liblapack-dev libblas-dev cmake
 pip install cherrypy
 
 # Install GROMACS:
@@ -34,6 +34,17 @@ cd JCatascopia-Agent-*
 cd .. 
 /etc/init.d/JCatascopia-Agent restart 
 
+# Install Scala:
+cd /tmp
+wget http://scala-lang.org/files/archive/scala-2.10.2.deb
+dpkg -i scala-2.10.2.deb
+
+# Build json.org. Still in /tmp:
+git clone https://github.com/douglascrockford/JSON-java.git
+mkdir -p org/json
+mv JSON-java/* org/json/
+javac org/json/*.java org/json/zip/*.java
+jar cvf ~/scan/json-org.jar org
 
 mkdir /mnt/nfs
 
