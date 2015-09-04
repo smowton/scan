@@ -16,7 +16,7 @@ make install
 
 # Install CellProfiler:
 cd /home/user
-apt-get install -y git python-h5py python-zmq python-matplotlib cython openjdk-7-jdk python-wxgtk2.8 python-scipy python-mysqldb python-vigra
+apt-get install -y git python-h5py python-zmq python-matplotlib cython openjdk-7-jdk python-wxgtk2.8 python-scipy python-mysqldb python-vigra imagemagick
 git clone https://github.com/CellProfiler/CellProfiler.git
 cd CellProfiler
 git checkout release_2.1.0

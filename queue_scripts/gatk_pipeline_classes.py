@@ -10,14 +10,15 @@ def getclasses():
     gatkclasses = [(("GATK class %s" % x), ("gatk_%s" % x)) for x in gatkclasses]
     gmxclasses = ["em", "nvt", "npt", "main", "grompp"]
     gmxclasses = [(("GROMACS class %s" % x), ("gmx_%s" % x)) for x in gmxclasses]
-    singlethread_classes = ["ir", "vf", "grompp"]
-    quick_classes = ["vf", "grompp"]
+    cpclasses = [("CellProfiler Main", "cpmain"), ("CellProfiler Thumbnail", "cpthumb")]
+    singlethread_classes = ["ir", "vf", "grompp", "cpmain", "cpthumb"]
+    quick_classes = ["vf", "grompp", "cpthumb"]
     quick_classes.extend([x for x in gatkclasses if "_gather" in gatkclasses])
 
     return {k: {"description": desc, 
                 "time_reward": (1.0, 1.0) if k not in quick_classes else (0.1, 1.0), 
                 "size_time": (0.1, 0.5) if k not in quick_classes else (0.05, 0.05),
                 "thread_time": 0.8 if k not in singlethread_classes else 0.0} 
-            for (desc, k) in (gatkclasses + gmxclasses + [("Queue jobs", "queue_runner")])}
+            for (desc, k) in (gatkclasses + gmxclasses + cpclasses + [("Queue jobs", "queue_runner")])}
 
 
