@@ -39,9 +39,12 @@ class GromacsScript extends QScript {
   @Argument
   var workdir : String = _
 
-    def gromadd(c : CommandLineFunction, cores : Integer, classname : String) {
+  @Argument
+  var estsize : String = _
 
-    c.jobNativeArgs = List("estsize", "1", "mempercore", "1")
+  def gromadd(c : CommandLineFunction, cores : Integer, classname : String) {
+
+    c.jobNativeArgs = List("estsize", estsize, "mempercore", "1")
     c.commandDirectory = workdir
     c.jobLocalDir = "/tmp"
     c.jobQueue = classname
@@ -53,22 +56,23 @@ class GromacsScript extends QScript {
 
   def script {
 
-    val stages = List("EM", "NVT", "NPT", "main")
+    val stages = List("input", "EM", "NVT", "NPT", "main")
     
     def makegrom(from : String, to : String) {
 
       val topin = PH.pathjoin(workdir, from + ".top")
       val groin = PH.pathjoin(workdir, from + ".gro")
       val posrein = PH.pathjoin(workdir, "posre.itp")
+      val mdpin = PH.pathjoin(workdir, to + ".mdp")
       val topout = PH.pathjoin(workdir, to + ".top")
       val tprout = PH.pathjoin(workdir, to + ".tpr")
 
-      val cmd = List("/usr/local/gromacs/bin/grompp", "-f", "/mnt/nfs/gromacs/" + from + ".mdp", "-c", groin, "-p", topin, "-pp", topout, "-o", tprout).mkString(" ")
-      gromadd(new GenericCmd(List(new File(topin), new File(groin), new File(posrein)), List(new File(topout), new File(tprout)), cmd), 1, "gmx_grompp")
+      val cmd = List("/usr/local/gromacs/bin/grompp", "-f", mdpin, "-c", groin, "-p", topin, "-pp", topout, "-o", tprout).mkString(" ")
+      gromadd(new GenericCmd(List(new File(topin), new File(groin), new File(posrein), new File(mdpin)), List(new File(topout), new File(tprout)), cmd), 1, "gmx_grompp")
 
     }
 
-    (0 to 2).map(i => makegrom(stages(i), stages(i + 1)))
+    (0 to 3).map(i => makegrom(stages(i), stages(i + 1)))
 
     def makemd(stage : String) {
 
@@ -82,7 +86,7 @@ class GromacsScript extends QScript {
 
     }
 
-    stages.map(makemd)
+    stages.drop(1).map(makemd)
 
   }
 

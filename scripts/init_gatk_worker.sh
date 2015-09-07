@@ -14,6 +14,20 @@ tar xvzf gmxdist.tar.gz
 cd gromacs-5.0.1/build
 make install
 
+# Install CellProfiler:
+cd /home/user
+apt-get install -y git python-h5py python-zmq python-matplotlib cython openjdk-7-jdk python-wxgtk2.8 python-scipy python-mysqldb python-vigra imagemagick
+git clone https://github.com/CellProfiler/CellProfiler.git
+cd CellProfiler
+git checkout release_2.1.0
+
+JAVABINPATH=`which java`
+ABSJAVAPATH=`readlink -f $JAVABINPATH`
+export JAVA_HOME=`dirname $ABSJAVAPATH`/../..
+export LD_LIBRARY_PATH=$JAVA_HOME/lib/amd64/server:$LD_LIBRARY_PATH
+
+python CellProfiler.py --build-and-exit
+
 cd ~
 
 SERVER_IP=$(ss-get orchestrator-okeanos:hostname)

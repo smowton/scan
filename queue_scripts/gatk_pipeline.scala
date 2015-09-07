@@ -132,6 +132,9 @@ class VarCallingPipeline extends QScript {
   @Argument
   var refdir : String = _
 
+  @Argument
+  var estsize : String = _
+
   @Argument(required=false)
   var scattercount : String = ""
 
@@ -175,7 +178,7 @@ class VarCallingPipeline extends QScript {
       c.javaMemoryLimit = Some(6)
 
       // Generic settings for GATK tasks:
-      c.jobNativeArgs = List("estsize", "1", "mempercore", "1")
+      c.jobNativeArgs = List("estsize", estsize, "mempercore", "1")
 
       // Don't require the CWD to be accessible remotely:
       c.commandDirectory = workdir
