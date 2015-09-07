@@ -4,7 +4,7 @@
 
 apt-get update
 
-apt-get -y install cifs-utils default-jre python python-dev python-pip libz-dev liblapack-dev libblas-dev cmake
+apt-get -y install cifs-utils default-jre python python-dev python-pip libz-dev liblapack-dev libblas-dev cmake libjansi-java
 pip install cherrypy
 
 # Install GROMACS:
@@ -57,7 +57,7 @@ dpkg -i scala-2.10.2.deb
 git clone https://github.com/douglascrockford/JSON-java.git
 mkdir -p org/json
 mv JSON-java/* org/json/
-javac org/json/*.java org/json/zip/*.java
+javac org/json/*.java
 jar cvf ~/scan/json-org.jar org
 
 mkdir /mnt/nfs
@@ -71,6 +71,10 @@ while [ $RDY1 != "1" ]; do
 done
 
 mount -t cifs //`ss-get --timeout 3600 scheduler.1:hostname`/share /mnt/nfs -o username=guest,password=''
+
+# Build JobRunner (must happen after the sched starts, as it downloads Queue)
+cd ~/scan/queue_jobrunner
+scalac -cp /mnt/nfs/Queue-3.1-smowton.jar:/root/scan/json-org.jar *.scala
 
 # Fetch the SCAN ps agent:
 cd ~
