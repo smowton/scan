@@ -135,10 +135,10 @@ class VarCallingPipeline extends QScript {
   @Argument
   var estsize : String = _
 
-  @Argument
+  @Argument(required=false)
   var scattercount : String = ""
 
-  @Argument
+  @Argument(required=false)
   var singleQueue : Boolean = false
 
   def parseScatterCount : Seq[Int] = {
