@@ -64,14 +64,24 @@ class ScanJobRunner(val function: CommandLineFunction, val manager: ScanJobManag
     procmap.get(jobId) match {
 
       case None => {
-	if(rcmap.get(jobId) == 0) {
-	  updateStatus(RunnerStatus.DONE)
-	  logger.info("Job id " + jobId + " done")
+
+	rcmap.get(jobId) match {
+	  
+	  case Some(0) => {
+
+	    updateStatus(RunnerStatus.DONE)
+	    logger.info("Job id " + jobId + " done")
+
+	  }
+	  case _ => {
+
+	    updateStatus(RunnerStatus.FAILED)
+	    logger.info("Job id " + jobId + " failed (returned " + rcmap.get(jobId) + ")")
+
+	  }
+
 	}
-	else {
-	  updateStatus(RunnerStatus.FAILED)
-	  logger.info("Job id " + jobId + " failed (returned " + rcmap.get(jobId) + ")")
-	}
+
       }
       case Some(jsobj) => updateStatus(RunnerStatus.RUNNING)
 
