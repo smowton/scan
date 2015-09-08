@@ -57,15 +57,21 @@ class ScanJobRunner(val function: CommandLineFunction, val manager: ScanJobManag
 
   }
 
-  def updateJobStatus(procmap : Map[Long, JSONObject]) = {
+  def updateJobStatus(procmap : Map[Long, JSONObject], rcmap : Map[Long, Long]) = {
 
     logger.info("Check job status %d".format(jobId))
 
     procmap.get(jobId) match {
 
       case None => {
-        updateStatus(RunnerStatus.DONE)
-        logger.info("Job id " + jobId + " done")
+	if(rcmap.get(jobId) == 0) {
+	  updateStatus(RunnerStatus.DONE)
+	  logger.info("Job id " + jobId + " done")
+	}
+	else {
+	  updateStatus(RunnerStatus.FAILED)
+	  logger.info("Job id " + jobId + " failed (returned " + rcmap.get(jobId) + ")")
+	}
       }
       case Some(jsobj) => updateStatus(RunnerStatus.RUNNING)
 

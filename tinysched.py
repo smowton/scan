@@ -19,6 +19,7 @@ import random
 import numpy
 import os
 import shutil
+import socket
 
 import scan_templates
 import integ_analysis.results
@@ -108,6 +109,7 @@ class Task:
 		self.run_attributes = None
 		self.filesin = filesin
 		self.filesout = filesout
+                self.cancelled = False
 
         def to_dict(self):
                 d = copy.copy(self.__dict__)
@@ -208,6 +210,7 @@ class MulticlassScheduler:
                 self.results = integ_analysis.results.ResultViewer()
 
                 self.procs = dict()
+                self.completed_procs = dict()
                 self.pending = []
                 self.workers = dict()
                 self.nextpid = 0
@@ -546,6 +549,9 @@ class MulticlassScheduler:
                 # Prepend bookkeeping:
                 cmd = "mkdir -p %s; export SCAN_WORKCOUNT_FILE=%s; echo $$ > %s; %s" % (np.taskdir(), np.workcountfile(), np.pidfile(), cmd)
 
+                # Prepend self-identification (for jobs that want to spawn further jobs):
+                cmd = "export SCAN_HOST=%s; %s" % (socket.getfqdn(), cmd)
+
 		# Prepend file fetching (TODO: make this more asynchronous)
 		for needf in np.filesin:
 			try:
@@ -572,7 +578,8 @@ class MulticlassScheduler:
 				print "Required file", needf, "will be copied from", copy_from.address
 
 		# Prepend output directory creation
-		cmd = "%s; %s" % ("; ".join(["mkdir -p %s" % os.path.dirname(self.abs_dfs_file(x)) for x in np.filesout]), cmd)
+                if len(np.filesout) != 0:
+                        cmd = "%s; %s" % ("; ".join(["mkdir -p %s" % os.path.dirname(self.abs_dfs_file(x)) for x in np.filesout]), cmd)
 
                 cmdline.append(cmd)
 
@@ -733,6 +740,8 @@ class MulticlassScheduler:
 
 				if ret == 0:
 	                                print "Task", pid, "finished"
+                                elif rp.cancelled:
+                                        print "Task", pid, "cancelled"
 				else:
 					print "*** Task", pid, "failed! (rc: %d)" % ret
                         
@@ -797,7 +806,8 @@ class MulticlassScheduler:
 						reward_gained = actual_reward(jobclass["time_reward"], runhours)
 						print "Reward gained: %f" % reward_gained
 						self.total_reward += reward_gained
-        
+                                                
+                                        self.completed_procs[pid] = 0
 					del self.procs[pid]
 
 				else:
@@ -813,8 +823,12 @@ class MulticlassScheduler:
 							print "Assuming task also failed to copy", failedf
 							dfsstat["pending"].remove(freed_worker.wid)
 
-					if rp.failures == 10:
+                                        if rp.cancelled:
+                                                self.completed_procs[pid] = -1
+                                                del self.procs[pid]
+					elif rp.failures == 10:
 						print "Too many failures; giving up"
+                                                self.completed_procs[pid] = ret
 						del self.procs[pid]
 					else:
 						rp.failures += 1
@@ -868,7 +882,10 @@ class MulticlassScheduler:
 				del self.procs[tid]
 				return {"pid": tid, "status": "deleted_queued"}
 			else:
-				rp.proc.terminate()
+                                rp.cancelled = True
+                                run = self.getrunner(rp.worker)
+                                run.append("kill -INT -- -`cat %s`" % rp.pidfile())
+                                subprocess.check_call(run)
 				return {"pid": tid, "status": "terminated"}
 
         def newworker(self, address, cores, memory):
@@ -983,6 +1000,11 @@ class MulticlassScheduler:
 
                 with self.lock:
                         return json.dumps(self.procs, cls=DictEncoder)
+
+        def lscompletedprocs(self):
+                
+                with self.lock:
+                        return json.dumps(self.completed_procs, cls=DictEncoder)
 
         def getpids(self):
 
