@@ -52,7 +52,7 @@ echo '   browsable = yes' >> /etc/samba/smb.conf
 echo '   read only = no' >> /etc/samba/smb.conf
 
 mkdir -p /mnt/nfs
-chown nobody:nogroup /mnt/nfs
+chown user:user /mnt/nfs
 
 restart smbd
 restart nmbd
