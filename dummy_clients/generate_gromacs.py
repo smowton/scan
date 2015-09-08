@@ -23,8 +23,8 @@ def start_gromacs(server, indir, runid, timefraction):
     for f in upload_files:
         generate_helpers.push_file(server, os.path.join(indir, f), os.path.join(dfsworkdir, f))
 
-    queue_args = ["--workdir=%s" % os.path.join("/mnt/scanfs", dfsworkdir),
-                  "--estsize=%f" % timefraction]
+    queue_args = ["--workdir", os.path.join("/mnt/scanfs", dfsworkdir),
+                  "--estsize", str(timefraction)]
 
     generate_helpers.start_queue_task(server, "/home/user/scan/queue_scripts/gromacs_pipeline.scala", queue_args)
     
