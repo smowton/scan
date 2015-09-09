@@ -28,12 +28,12 @@ def start_cp(server, indir, runid, pixelsize):
 
 def get_results(server, runid, localname):
 
-    generate_helpers.get_file(server, "cp_%d/Outline_thumbnail.png" % runid, localname)
+    generate_helpers.get_file(server, "cp_%d/out/Outline_thumbnail.png" % runid, localname)
 
 def cleanup_cp(server, runid):
 
     rundir = "/cp_%d" % runid
-    todel = ["IN%d.tif" % i for i in range(3)] + ["IN0_Outline.png", "Outline_thumbnail.png"]
+    todel = ["IN%d.tif" % i for i in range(3)] + ["out/IN0_Outline.png", "out/Outline_thumbnail.png"]
     for d in todel:
         generate_helpers.del_file(server, os.path.join(rundir, d))
 

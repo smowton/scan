@@ -36,11 +36,15 @@ def wait_for_task(server, pid):
     while True:
 
         print "Poll task", pid
-        conn = httplib.HTTPConnection(server, 8080)
-        conn.request("GET", "/lscompletedprocs")
-        response = conn.getresponse()
-        if response.status != 200:
-            raise Exception("Poll %d failed with code %s / %s" % (pid, response.status, response.reason))    
+	try:
+            conn = httplib.HTTPConnection(server, 8080)
+            conn.request("GET", "/lscompletedprocs")
+            response = conn.getresponse()
+            if response.status != 200:
+                raise Exception("Poll %d failed with code %s / %s" % (pid, response.status, response.reason))    
+        except Exception as e:
+            print >>sys.stderr, "Failed to poll %s" % e
+            continue
 
         tasks = json.load(response)
         tasks = dict([(int(k), v) for (k, v) in tasks.iteritems()])
@@ -84,7 +88,7 @@ def push_file(server, localname, dfsname, may_exist = False):
 def get_file(server, dfsname, localname):
 
     conn = httplib.HTTPConnection(server, 8080)	
-    conn.request("GET", "/dfsget?path=" + dfsname, f)
+    conn.request("GET", "/dfsget?path=" + dfsname)
     response = conn.getresponse()
     if response.status != 200:
         raise Exception("Get %s failed with code %s / %s" % (dfsname, response.status, response.reason))
