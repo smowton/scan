@@ -5,6 +5,7 @@ import tempfile
 import os.path
 import shutil
 import random
+import math
 
 def upload_gatk_refdata(server, basedir):
 
@@ -37,16 +38,18 @@ def start_gatk(server, basefile, sizefraction, runid):
     queue_args = ["--input", scanfs_input,
                   "--workdir", scanfs_workdir,
                   "--refdir", "/mnt/scanfs/gatk_refs",
-                  "--estsize", sizefraction]
+                  "--estsize", "%d" % int(math.floor(sizefraction * 100))]
 
-    generate_helpers.start_queue_task(server, "/home/user/scan/queue_scripts/gatk_pipeline.scala", queue_args)
+    ret = generate_helpers.start_queue_task(server, "/home/user/scan/queue_scripts/gatk_pipeline.scala", queue_args)
 
     shutil.rmtree(td)
+
+    return ret
 
 def cleanup_gatk(server, runid):
 
     to_del = ["in.bam.bai", "in.bam", "realign_targets.intervals", "realigned.bam", "recal.csv", "recal.bam", "unfiltered_calls.vcf", "filtered_calls.vcf", "final_calls.vcf"]
 
     for d in to_del:
-        generate_helpers.del_file(os.path.join("gatk_%d" % runid, d))
+        generate_helpers.del_file(server, os.path.join("gatk_%d" % runid, d))
     

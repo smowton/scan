@@ -9,11 +9,11 @@ def start_cp(server, infile, runid, pixelsize):
 
     dfspath = "/cp_%d" % runid
     td = tempfile.mkdtemp()
-    localname = os.path.join(td, "in.tif")
 
-    subprocess.check_call(["convert", infile, "-resize", "%dx%d" % pixelsize, localname])
-
-    generate_helpers.push_file(server, localname, os.path.join(dfspath, "in.tif"))
+    for i in range(3):
+        localname = os.path.join(td, "IN%d.tif" % i)	
+        subprocess.check_call(["convert", infile, "-resize", "%dx%d" % pixelsize, localname])
+        generate_helpers.push_file(server, localname, os.path.join(dfspath, "IN%d.tif" % i))
 
     queue_args = ["--indir=%s" % os.path.join("/mnt/scanfs", dfspath),
                   "--outdir=%s" % os.path.join("/mnt/scanfs", dfspath, "out"),

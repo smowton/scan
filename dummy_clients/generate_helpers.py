@@ -51,6 +51,8 @@ def wait_for_task(server, pid):
             else:
                 raise Exception("Task %d exited with return code %d" % (pid, tasks[pid]))
 
+        time.sleep(5)
+
 dfscontents = None
 
 def push_file(server, localname, dfsname, may_exist = False):

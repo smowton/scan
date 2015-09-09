@@ -3,12 +3,13 @@ import tempfile
 import os.path
 import generate_helpers
 import shutil
+import math
 
 def start_gromacs(server, indir, runid, timefraction):
 
     td = tempfile.mkdtemp()
     
-    dfsworkdir = "/gromacs_%d" % runid
+    dfsworkdir = "gromacs_%d" % runid
     steps_defaults = {"EM": 50000, "NVT": 50000, "NPT": 50000, "main": 50000}
 
     for k, v in steps_defaults.iteritems():
@@ -24,9 +25,14 @@ def start_gromacs(server, indir, runid, timefraction):
         generate_helpers.push_file(server, os.path.join(indir, f), os.path.join(dfsworkdir, f))
 
     queue_args = ["--workdir", os.path.join("/mnt/scanfs", dfsworkdir),
-                  "--estsize", str(timefraction)]
+                  "--estsize", str(int(math.floor(timefraction * 100)))]
 
     generate_helpers.start_queue_task(server, "/home/user/scan/queue_scripts/gromacs_pipeline.scala", queue_args)
     
     shutil.rmtree(td)
         
+def cleanup_gromacs(server, runid):
+
+    dfsworkdir = "/gromacs_%d" % runid	
+
+    todel = [""]

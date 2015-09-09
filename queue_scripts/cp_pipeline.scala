@@ -66,8 +66,8 @@ class CPScript extends QScript {
     val interfiles = List(PH.pathjoin(outdir, "IN0_Outline.png"));
     val outfiles = List(PH.pathjoin(outdir, "Outline_thumbnail.png"));
 
-    cpadd(new GenericCmd(infiles, interfiles, "/root/scan/cp_scripts/runcp.sh /home/user %s %s %s".format(indir, outdir, tmpdir)), "cpmain");
-    cpadd(new GenericCmd(interfiles, outfiles, "imagemagick %s -resize 50x50 %s".format(interfiles(0), outfiles(0))), "cpthumb");
+    cpadd(new GenericCmd(infiles, interfiles, "/home/user/scan/cp_scripts/runcp.sh /home/user %s %s %s".format(indir, outdir, tmpdir)), "cpmain");
+    cpadd(new GenericCmd(interfiles, outfiles, "convert %s -resize 50x50 %s".format(interfiles(0), outfiles(0))), "cpthumb");
 
   }
 

@@ -80,6 +80,8 @@ scalac -cp /mnt/nfs/Queue-3.1-smowton.jar:/root/scan/json-org.jar *.scala
 # Fetch the SCAN ps agent:
 cd ~
 git clone https://github.com/smowton/scan.git
+# For compatibility with the test environment...
+cp -r ~/scan /home/user/scan
 
 # Wait for the scheduler:
 RDY2=`ss-get --timeout 3600 scheduler.1:sched_ready`
