@@ -4,6 +4,8 @@ mkdir -p $3
 mkdir -p $4
 
 ESCAPED_INPUT=`echo $2 | sed s/\\\\//\\\\\\\\\\\\//g`
+cp /home/user/scan/cp_scripts/headless.cppipe $2
+cp /home/user/scan/cp_scripts/imageset.csv $2
 sed -i s/INPUTPATH/$ESCAPED_INPUT/g $2/imageset.csv
 sed -i s/INPUTPATH/$ESCAPED_INPUT/g $2/headless.cppipe
 

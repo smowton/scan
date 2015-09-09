@@ -61,7 +61,7 @@ class CPScript extends QScript {
   }
 
   def script {
-
+      
     val infiles = (0 to 2).map(x => PH.pathjoin(indir, "IN%d.tif".format(x)));
     val interfiles = List(PH.pathjoin(outdir, "IN0_Outline.png"));
     val outfiles = List(PH.pathjoin(outdir, "Outline_thumbnail.png"));
