@@ -482,7 +482,7 @@ class MulticlassScheduler:
 		else:
 
 			history = self.classes[proc.classname]["time_history"]
-			if len(history) > 3 and all([cores == will_use_cores for (size, cores, tm) in history]):
+			if len(nthreads_choices) > 1 and len(history) > 3 and all([cores == will_use_cores for (size, cores, tm) in history]):
 				changed = False
 				if will_use_cores > 1:
 					will_use_cores /= 2
