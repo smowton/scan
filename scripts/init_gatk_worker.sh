@@ -2,9 +2,10 @@
 
 # Ready a worker, based on Ubuntu Server LTS / 14.04 Okeanos image:
 
-apt-get update
+# Install various dependencies:
 
-apt-get -y install cifs-utils default-jre python python-dev python-pip libz-dev liblapack-dev libblas-dev cmake libjansi-java
+apt-get update
+apt-get -y install cifs-utils default-jre python python-dev python-pip libz-dev liblapack-dev libblas-dev cmake libjansi-java git python-h5py python-zmq python-matplotlib cython openjdk-7-jdk python-wxgtk2.8 python-scipy python-mysqldb python-vigra imagemagick
 pip install cherrypy
 
 # Install GROMACS:
@@ -16,7 +17,6 @@ make install
 
 # Install CellProfiler:
 cd /home/user
-apt-get install -y git python-h5py python-zmq python-matplotlib cython openjdk-7-jdk python-wxgtk2.8 python-scipy python-mysqldb python-vigra imagemagick
 git clone https://github.com/CellProfiler/CellProfiler.git
 cd CellProfiler
 git checkout release_2.1.0
@@ -30,6 +30,8 @@ python CellProfiler.py --build-and-exit
 
 cd ~
 
+# Set up JCatascopia
+
 SERVER_IP=$(ss-get orchestrator-okeanos:hostname)
 CELAR_REPO=http://snf-175960.vm.okeanos.grnet.gr
 JC_VERSION=LATEST
@@ -38,7 +40,6 @@ JC_GROUP=eu.celarcloud.cloud-ms
 JC_TYPE=tar.gz
 DISTRO=$(eval cat /etc/*release)
 
-#download,install and start jcatascopia agent... 
 URL="$CELAR_REPO/nexus/service/local/artifact/maven/redirect?r=snapshots&g=$JC_GROUP&a=$JC_ARTIFACT&v=$JC_VERSION&p=$JC_TYPE" 
 wget -O JCatascopia-Agent.tar.gz $URL 
 tar xvfz JCatascopia-Agent.tar.gz 
@@ -62,7 +63,7 @@ jar cvf ~/scan/json-org.jar org
 
 mkdir /mnt/nfs
 
-# Wait for the scheduler to start CIFS server (nfs name is historical):
+# Wait for the scheduler to start NFS server
 RDY1=`ss-get --timeout 3600 scheduler.1:nfs_ready`
 while [ $RDY1 != "1" ]; do
     echo "Waiting for the scheduler..."
@@ -70,7 +71,7 @@ while [ $RDY1 != "1" ]; do
     RDY1=`ss-get --timeout 3600 scheduler.1:nfs_ready`
 done
 
-mount -t cifs //`ss-get --timeout 3600 scheduler.1:hostname`/share /mnt/nfs -o username=guest,password=''
+mount `ss-get --timeout 3600 scheduler.1:hostname`:/mnt/nfs /mnt/nfs
 
 # Build JobRunner (must happen after the sched starts, as it downloads Queue)
 cd ~/scan/queue_jobrunner
@@ -80,8 +81,6 @@ scalac -cp /mnt/nfs/Queue-3.1-smowton.jar:/root/scan/json-org.jar *.scala
 cd ~
 git clone https://github.com/smowton/scan.git
 
-# Fetch JCatascopia standard probes, etc.
-# Not implemented yet
 # Wait for the scheduler:
 RDY2=`ss-get --timeout 3600 scheduler.1:sched_ready`
 while [ $RDY2 != "1" ]; do
@@ -90,7 +89,7 @@ while [ $RDY2 != "1" ]; do
     RDY2=`ss-get --timeout 3600 scheduler.1:sched_ready`
 done
 
-# Enable passwordless SSH access (for example?)
+# Enable passwordless SSH access
 mkdir ~/.ssh
 
 # auth_keys might not end with a newline at the moment

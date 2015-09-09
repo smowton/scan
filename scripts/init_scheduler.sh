@@ -4,6 +4,14 @@ ip=$(ss-get hostname)
 hostname=$(hostname) 
 echo $ip $hostname >> /etc/hosts 
 
+# Install various dependencies...
+
+apt-get update -y 
+apt-get install -y openjdk-7-jdk openjdk-7-jre-headless nfs-kernel-server python python-pip python-dev git pkg-config libfreetype6-dev python-numpy python-matplotlib 
+pip install cql cherrypy
+
+# Set up JCatascopia
+
 SERVER_IP=$(ss-get orchestrator-okeanos:hostname) 
 CELAR_REPO=http://snf-175960.vm.okeanos.grnet.gr 
 JC_VERSION=LATEST 
@@ -12,19 +20,6 @@ JC_GROUP=eu.celarcloud.cloud-ms
 JC_TYPE=tar.gz 
 DISTRO=$(eval cat /etc/*release) 
 
-if [[ "$DISTRO" == *Ubuntu* ]]; then 
-        apt-get update -y 
-        #download and install java 
-        apt-get install -y openjdk-7-jre-headless 
-fi 
-if [[ "$DISTRO" == *CentOS* ]]; then 
-        yum -y update 
-        yum install -y wget 
-        #download and install java 
-        yum -y install java-1.7.0-openjdk 
-fi 
-
-#download,install and start jcatascopia agent... 
 URL="$CELAR_REPO/nexus/service/local/artifact/maven/redirect?r=snapshots&g=$JC_GROUP&a=$JC_ARTIFACT&v=$JC_VERSION&p=$JC_TYPE" 
 wget -O JCatascopia-Agent.tar.gz $URL 
 tar xvfz JCatascopia-Agent.tar.gz 
@@ -34,38 +29,20 @@ cd JCatascopia-Agent-*
 cd .. 
 /etc/init.d/JCatascopia-Agent restart 
 
-# Set up Samba and Java
-apt-get -y install samba openjdk-7-jdk
-# Upgrade everything
-#apt-get -o DPkg::options::="--force-confdef" -o DPkg::options::="--force-confold" -y upgrade
-
-sed 's/WORKGROUP/SCAN/' < /etc/samba/smb.conf > /tmp/smb.conf ; mv -f /tmp/smb.conf /etc/samba/smb.conf
-echo 'security = share' >> /etc/samba/smb.conf
-echo '[share]' >> /etc/samba/smb.conf
-echo '   comment = Ubuntu File Server Share' >> /etc/samba/smb.conf
-echo '   path = /mnt/nfs' >> /etc/samba/smb.conf
-echo '   public = yes' >> /etc/samba/smb.conf
-echo '   guest ok = yes' >> /etc/samba/smb.conf
-echo '   guest only = yes' >> /etc/samba/smb.conf
-echo '   guest account = nobody' >> /etc/samba/smb.conf
-echo '   browsable = yes' >> /etc/samba/smb.conf
-echo '   read only = no' >> /etc/samba/smb.conf
+# Set up NFS share
 
 mkdir -p /mnt/nfs
 chown user:user /mnt/nfs
 
-restart smbd
-restart nmbd
+echo "/mnt/nfs 83.212.0.0/16(rw,sync,no_subtree_check) 2001:648:2ffc:1225::/64(rw,sync,no_subtree_check)" >> /etc/exports
+service nfs-kernel-server restart
 
-#create a test.file
 touch /mnt/nfs/test.file
 
 ss-set nfs_ready 1
 
-apt-get -y install python python-pip python-dev git pkg-config libfreetype6-dev python-numpy python-matplotlib
-pip install cql cherrypy
-
 # Get the scheduler code etc:
+
 cd ~
 git clone https://github.com/smowton/scan.git
 
@@ -73,29 +50,6 @@ git clone https://github.com/smowton/scan.git
 mkdir -p ~/.ssh
 ssh-keygen -N "" -f ~/.ssh/id_rsa
 ss-set authorized_keys `cat ~/.ssh/id_rsa.pub | base64 --wrap 0`
-
-# Wait for Cassandra to come up
-RDY1=`ss-get cassandraSeedNode.1:cassandraReady`
-while [ $RDY1 != "true" ]; do
-    echo "Waiting for Cassandra..."
-    sleep 1
-    RDY1=`ss-get cassandraSeedNode.1:cassandraReady`
-done
-
-# Export for the scheduler's benefit
-export SCAN_DB_HOST=`ss-get cassandraSeedNode.1:hostname`
-# Store for work-generator clients to see and use
-echo $SCAN_DB_HOST > /mnt/nfs/scan_db_hostname
-
-# Initialise DB:
-~/scan/integ_analysis/initdb.py $SCAN_DB_HOST
-
-# Set up test environment:
-# Make sure test_workdir is usable by remote users
-sudo -u nobody mkdir /mnt/nfs/gromacs
-cd /mnt/nfs/gromacs
-wget http://cs448.user.srcf.net/gmxscripts.tar.gz
-tar xvzf gmxscripts.tar.gz
 
 # Register probe with JC agent:
 ~/scan/scripts/build_probes.sh
@@ -112,12 +66,12 @@ cd ~/scan
 ~/scan/tinysched.py ~/scan/queue_scripts/gatk_pipeline_classes.py &
 ~/scan/await_server.py
 
+# Reload to enable the SCAN probe
 service JCatascopia-Agent stop
 service JCatascopia-Agent start
 
 # Note that we're ready
 ss-set sched_address `ss-get hostname`
-
 ss-set sched_ready 1
 
 
