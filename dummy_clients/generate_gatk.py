@@ -46,6 +46,10 @@ def start_gatk(server, basefile, sizefraction, runid):
 
     return ret
 
+def get_results(server, runid, localname):
+
+    generate_helpers.get_file(server, "gatk_%d/final_calls.vcf" % runid, localname)
+
 def cleanup_gatk(server, runid):
 
     to_del = ["in.bam.bai", "in.bam", "realign_targets.intervals", "realigned.bam", "recal.csv", "recal.bam", "unfiltered_calls.vcf", "filtered_calls.vcf", "final_calls.vcf"]

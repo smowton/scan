@@ -3,6 +3,7 @@ import httplib
 import urllib
 import json
 import time
+import shutil
 
 def start_queue_task(server, qscript, qargs):
 
@@ -80,6 +81,16 @@ def push_file(server, localname, dfsname, may_exist = False):
             raise Exception("Put %s to %s failed with code %s / %s" % (localname, dfsname, response.status, response.reason))
         dfscontents[dfsname] = 1
 
+def get_file(server, dfsname, localname):
+
+    conn = httplib.HTTPConnection(server, 8080)	
+    conn.request("GET", "/dfsget?path=" + dfsname, f)
+    response = conn.getresponse()
+    if response.status != 200:
+        raise Exception("Get %s failed with code %s / %s" % (dfsname, response.status, response.reason))
+    with open(localname, "w") as fout:
+        shutil.copyfileobj(response, fout)
+    
 def del_file(server, dfsname):
 
     headers = {"Content-type": "application/x-www-form-urlencoded"}

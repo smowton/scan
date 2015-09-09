@@ -27,9 +27,15 @@ def start_gromacs(server, indir, runid, timefraction):
     queue_args = ["--workdir", os.path.join("/mnt/scanfs", dfsworkdir),
                   "--estsize", str(int(math.floor(timefraction * 100)))]
 
-    generate_helpers.start_queue_task(server, "/home/user/scan/queue_scripts/gromacs_pipeline.scala", queue_args)
+    pid = generate_helpers.start_queue_task(server, "/home/user/scan/queue_scripts/gromacs_pipeline.scala", queue_args)
     
     shutil.rmtree(td)
+
+    return pid
+
+def get_results(server, runid, localname):
+
+    generate_helpers.get_file(server, "gromacs_%d/main.gro" % runid, localname)
         
 def cleanup_gromacs(server, runid):
 
