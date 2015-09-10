@@ -7,7 +7,7 @@ import shutil
 
 def start_queue_task(server, qscript, qargs):
 
-    cmd = "java -cp /mnt/nfs/Queue-3.1-smowton.jar:/home/user/scan/json-org.jar:/home/user/scan/queue_jobrunner org.broadinstitute.sting.queue.QCommandLine -S %s -jobRunner Scan -run -tempDir /mnt/nfs/queue/ -logDir /mnt/nfs/queue/ -jobSGDir /mnt/nfs/queue/ %s" % (qscript, " ".join(qargs))
+    cmd = "java -cp /mnt/nfs/Queue-3.1-smowton.jar:/root/scan/json-org.jar:/root/scan/queue_jobrunner org.broadinstitute.sting.queue.QCommandLine -S %s -jobRunner Scan -run -tempDir /mnt/nfs/queue/ -logDir /mnt/nfs/queue/ -jobSGDir /mnt/nfs/queue/ %s" % (qscript, " ".join(qargs))
 
     post_args = {"cmd": cmd,
                  "classname": "queue_runner",

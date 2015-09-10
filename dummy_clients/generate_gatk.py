@@ -40,7 +40,7 @@ def start_gatk(server, basefile, sizefraction, runid):
                   "--refdir", "/mnt/scanfs/gatk_refs",
                   "--estsize", "%d" % int(math.floor(sizefraction * 100))]
 
-    ret = generate_helpers.start_queue_task(server, "/home/user/scan/queue_scripts/gatk_pipeline.scala", queue_args)
+    ret = generate_helpers.start_queue_task(server, "/root/scan/queue_scripts/gatk_pipeline.scala", queue_args)
 
     shutil.rmtree(td)
 

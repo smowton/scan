@@ -20,7 +20,7 @@ def start_cp(server, indir, runid, pixelsize):
                   "--tmpdir", os.path.join("/mnt/scanfs", dfspath, "tmp"),
                   "--estsize", "%d" % (pixelsize ** 2)]
 
-    ret = generate_helpers.start_queue_task(server, "/home/user/scan/queue_scripts/cp_pipeline.scala", queue_args)
+    ret = generate_helpers.start_queue_task(server, "/root/scan/queue_scripts/cp_pipeline.scala", queue_args)
 
     shutil.rmtree(td)
 

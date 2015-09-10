@@ -24,7 +24,7 @@ git checkout release_2.1.0
 JAVABINPATH=`which java`
 ABSJAVAPATH=`readlink -f $JAVABINPATH`
 export JAVA_HOME=`dirname $ABSJAVAPATH`/../..
-export LD_LIBRARY_PATH=$JAVA_HOME/lib/amd64/server:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=$JAVA_HOME/jre/lib/amd64/server:$LD_LIBRARY_PATH
 
 python CellProfiler.py --build-and-exit
 cd cellprofiler/utilities
@@ -109,6 +109,7 @@ echo $SCHED_ADDRESS > ~/scan_sched_address
 
 # Initialise SCANFS here
 python ~/scan/btrfs_scripts/add-root-device.py
+chown user:user /mnt/scanfs
 
 # Machine is now ready to be a GATK worker. Register it:
 ~/scan/register_worker.py $SCHED_ADDRESS > ~/scan_worker_id
