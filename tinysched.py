@@ -197,6 +197,8 @@ class MulticlassScheduler:
 
                 if classfile is not None:
                         self.classes = imp.load_source("user_classes_module", classfile).getclasses(**classargs)
+			for c in self.classes:
+				self.classes[c]["lastwph"] = 0
                 else:
 			self.classes = {"linux": {"lastwph": 0, "description": "Generic Linux tasks", "time_reward": None, "size_time": None, "thread_time": None} }
 
@@ -482,7 +484,7 @@ class MulticlassScheduler:
 		else:
 
 			history = self.classes[proc.classname]["time_history"]
-			if len(history) > 3 and all([cores == will_use_cores for (size, cores, tm) in history]):
+			if len(nthreads_choices) > 1 and len(history) > 3 and all([cores == will_use_cores for (size, cores, tm) in history]):
 				changed = False
 				if will_use_cores > 1:
 					will_use_cores /= 2
