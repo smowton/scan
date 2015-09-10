@@ -5,7 +5,7 @@
 # Install various dependencies:
 
 apt-get update
-apt-get -y install cifs-utils default-jre python python-dev python-pip libz-dev liblapack-dev libblas-dev cmake libjansi-java git python-h5py python-zmq python-matplotlib cython openjdk-7-jdk python-wxgtk2.8 python-scipy python-mysqldb python-vigra imagemagick
+apt-get -y install cifs-utils default-jre python python-dev python-pip libz-dev liblapack-dev libblas-dev cmake libjansi-java git python-h5py python-zmq python-matplotlib cython openjdk-7-jdk python-wxgtk2.8 python-scipy python-mysqldb python-vigra imagemagick nfs-common
 pip install cherrypy
 
 # Install GROMACS:
@@ -75,15 +75,15 @@ done
 
 mount `ss-get --timeout 3600 scheduler.1:hostname`:/mnt/nfs /mnt/nfs
 
-# Build JobRunner (must happen after the sched starts, as it downloads Queue)
-cd ~/scan/queue_jobrunner
-scalac -cp /mnt/nfs/Queue-3.1-smowton.jar:/root/scan/json-org.jar *.scala
-
 # Fetch the SCAN ps agent:
 cd ~
 git clone https://github.com/smowton/scan.git
 # For compatibility with the test environment...
 cp -r ~/scan /home/user/scan
+
+# Build JobRunner (must happen after the sched starts, as it downloads Queue)
+cd ~/scan/queue_jobrunner
+scalac -cp /mnt/nfs/Queue-3.1-smowton.jar:/root/scan/json-org.jar *.scala
 
 # Wait for the scheduler:
 RDY2=`ss-get --timeout 3600 scheduler.1:sched_ready`
