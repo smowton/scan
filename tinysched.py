@@ -197,6 +197,8 @@ class MulticlassScheduler:
 
                 if classfile is not None:
                         self.classes = imp.load_source("user_classes_module", classfile).getclasses(**classargs)
+			for c in self.classes:
+				self.classes[c]["lastwph"] = 0
                 else:
 			self.classes = {"linux": {"lastwph": 0, "description": "Generic Linux tasks", "time_reward": None, "size_time": None, "thread_time": None} }
 
