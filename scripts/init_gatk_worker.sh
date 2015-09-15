@@ -26,10 +26,6 @@ ABSJAVAPATH=`readlink -f $JAVABINPATH`
 export JAVA_HOME=`dirname $ABSJAVAPATH`/../..
 export LD_LIBRARY_PATH=$JAVA_HOME/jre/lib/amd64/server:$LD_LIBRARY_PATH
 
-python CellProfiler.py --build-and-exit
-cd cellprofiler/utilities
-python setup.py build_ext --inplace
-
 cd ~
 
 # Set up JCatascopia
