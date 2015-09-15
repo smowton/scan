@@ -17,9 +17,9 @@ make install
 
 # Install CellProfiler:
 cd /home/user
-git clone https://github.com/CellProfiler/CellProfiler.git
+wget http://cs448.user.srcf.net/cpdist.tar.gz
+tar xvzf cpdist.tar.gz
 cd CellProfiler
-git checkout release_2.1.0
 
 JAVABINPATH=`which java`
 ABSJAVAPATH=`readlink -f $JAVABINPATH`
