@@ -52,13 +52,6 @@ cd /tmp
 wget http://scala-lang.org/files/archive/scala-2.10.2.deb
 dpkg -i scala-2.10.2.deb
 
-# Build json.org. Still in /tmp:
-git clone https://github.com/douglascrockford/JSON-java.git
-mkdir -p org/json
-mv JSON-java/* org/json/
-javac org/json/*.java
-jar cvf ~/scan/json-org.jar org
-
 mkdir /mnt/nfs
 
 # Wait for the scheduler to start NFS server
@@ -71,15 +64,24 @@ done
 
 mount `ss-get --timeout 3600 scheduler.1:hostname`:/mnt/nfs /mnt/nfs
 
-# Fetch the SCAN ps agent:
+# Fetch SCAN:
 cd ~
 git clone https://github.com/smowton/scan.git
-# For compatibility with the test environment...
-cp -r ~/scan /home/user/scan
+
+# Build json.org.
+cd /tmp
+git clone https://github.com/douglascrockford/JSON-java.git
+mkdir -p org/json
+mv JSON-java/* org/json/
+javac org/json/*.java
+jar cvf ~/scan/json-org.jar org
 
 # Build JobRunner (must happen after the sched starts, as it downloads Queue)
 cd ~/scan/queue_jobrunner
 scalac -cp /mnt/nfs/Queue-3.1-smowton.jar:/root/scan/json-org.jar *.scala
+
+# For compatibility with the test environment...
+cp -r ~/scan /home/user/scan
 
 # Wait for the scheduler:
 RDY2=`ss-get --timeout 3600 scheduler.1:sched_ready`
