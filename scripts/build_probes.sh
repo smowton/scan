@@ -6,7 +6,7 @@ cd /tmp
 git clone https://github.com/douglascrockford/JSON-java.git
 mkdir -p org/json
 mv JSON-java/* org/json/
-javac org/json/*.java org/json/zip/*.java
+javac org/json/*.java
 
 # Build the JCatascopia probe:
 cd ~/scan/jc_probes
