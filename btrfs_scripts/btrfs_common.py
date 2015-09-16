@@ -22,7 +22,7 @@ def add_device(devname):
 
     else:
 
-        subprocess.check_call(["/sbin/btrfs", "device", "add", devname, mountpoint])
+        subprocess.check_call(["/sbin/btrfs", "device", "add", "-f", devname, mountpoint])
 
 db_location = "/tmp/btrfs_device_ids"
 
