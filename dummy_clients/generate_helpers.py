@@ -4,6 +4,7 @@ import urllib
 import json
 import time
 import shutil
+import sys
 
 def start_queue_task(server, qscript, qargs):
 
