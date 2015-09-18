@@ -49,7 +49,7 @@ cd ..
 mkdir -p /mnt/nfs
 chown user:user /mnt/nfs
 
-echo "/mnt/nfs 83.212.0.0/16(rw,sync,no_subtree_check) 2001:648:2ffc:1225::/64(rw,sync,no_subtree_check)" >> /etc/exports
+echo "/mnt/nfs 83.212.0.0/16(rw,sync,no_subtree_check) 2001:648:2ffc:1225::/64(rw,sync,no_subtree_check) 109.231.0.0/16(rw,sync,no_subtree_check)" >> /etc/exports
 service nfs-kernel-server restart
 
 touch /mnt/nfs/test.file
