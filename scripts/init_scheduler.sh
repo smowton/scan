@@ -4,6 +4,11 @@ ip=$(ss-get hostname)
 hostname=$(hostname) 
 echo $ip $hostname >> /etc/hosts 
 
+# Create unpriv user if needed
+if ! getent passwd user > /dev/null; then
+    adduser --disabled-password --gecos "" user
+fi
+
 # Install various dependencies...
 
 apt-get update -y 
@@ -12,7 +17,17 @@ pip install cql cherrypy
 
 # Set up JCatascopia
 
-SERVER_IP=$(ss-get orchestrator-okeanos:hostname) 
+CLOUDSERVICE=$(ss-get scheduler.1:cloudservice)
+
+if [ "$CLOUDSERVICE" = "okeanos" ]; then
+    ORCHNAME="orchestrator-okeanos"
+elif [ "$CLOUDSERVICE" = "Flexiant-c2" ]; then
+    ORCHNAME="orchestrator-Flexiant-c2"
+else
+    echo "Unknown cloud service $CLOUDSERVICE"; exit 1
+fi
+
+SERVER_IP=$(ss-get $ORCHNAME:hostname) 
 CELAR_REPO=http://snf-175960.vm.okeanos.grnet.gr 
 JC_VERSION=LATEST 
 JC_ARTIFACT=JCatascopia-Agent 
