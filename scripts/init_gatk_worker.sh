@@ -10,7 +10,7 @@ fi
 # Install various dependencies:
 
 apt-get update
-apt-get -y install default-jre python python-dev python-pip libz-dev liblapack-dev libblas-dev cmake libjansi-java git python-h5py python-zmq python-matplotlib cython openjdk-7-jdk python-wxgtk2.8 python-scipy python-mysqldb python-vigra imagemagick nfs-common btrfs
+apt-get -y install default-jre python python-dev python-pip libz-dev liblapack-dev libblas-dev cmake libjansi-java git python-h5py python-zmq python-matplotlib cython openjdk-7-jdk python-wxgtk2.8 python-scipy python-mysqldb python-vigra imagemagick nfs-common btrfs-tools
 pip install cherrypy
 
 # Install GROMACS:
