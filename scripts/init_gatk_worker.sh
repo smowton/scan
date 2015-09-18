@@ -114,6 +114,7 @@ echo >> ~/.ssh/authorized_keys
 echo `ss-get --timeout 3600 scheduler.1:authorized_keys | base64 -d` >> ~/.ssh/authorized_keys
 mkdir -p ~user/.ssh
 echo `ss-get --timeout 3600 scheduler.1:authorized_keys | base64 -d` >> /home/user/.ssh/authorized_keys
+chmod 755 ~user/.ssh
 chmod 600 ~user/.ssh/authorized_keys
 chown -R user:user /home/user/.ssh
 

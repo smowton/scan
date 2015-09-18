@@ -75,8 +75,9 @@ def simple_linreg(xs, ys):
 
 class Worker:
 
-	def __init__(self, address, wid, totalcores, totalmemory):
+	def __init__(self, address, callbackip, wid, totalcores, totalmemory):
 		self.address = address
+		self.callbackip = callbackip
                 self.wid = wid
 		self.cores = totalcores
 		self.memory = totalmemory
@@ -552,7 +553,7 @@ class MulticlassScheduler:
                 cmd = "mkdir -p %s; export SCAN_WORKCOUNT_FILE=%s; echo $$ > %s; %s" % (np.taskdir(), np.workcountfile(), np.pidfile(), cmd)
 
                 # Prepend self-identification (for jobs that want to spawn further jobs):
-                cmd = "export SCAN_HOST=%s; %s" % (socket.getfqdn(), cmd)
+                cmd = "export SCAN_HOST=%s; %s" % (run_worker.callbackip, cmd)
 
 		# Prepend file fetching (TODO: make this more asynchronous)
 		for needf in np.filesin:
@@ -891,11 +892,22 @@ class MulticlassScheduler:
 				return {"pid": tid, "status": "terminated"}
 
         def newworker(self, address, cores, memory):
-                
+            
+		worker_ip4 = socket.gethostbyname(address)
+		route_report = subprocess.check_output(["/sbin/ip", "route", "get", worker_ip4])
+		lines = route_report.split("\n")
+		if len(lines) == 0:
+			print >>sys.stderr, "IP route query for", worker_ip4, "returned", route_report
+			raise Exception("Cannot route to worker")
+		bits = lines[0].split()
+		if len(bits) < 5 or bits[3] != "src":
+			print >>sys.stderr, "Unexpected format for IP route query", worker_ip4, ":", route_report
+		callback_ip = bits[4]
+    
                 wid = self.nextwid
                 self.nextwid += 1
                 print "Add worker", wid, address
-                return Worker(address, wid, cores, memory)
+                return Worker(address, callback_ip, wid, cores, memory)
 
 	def addworker(self, address, cores, memory):
 		
