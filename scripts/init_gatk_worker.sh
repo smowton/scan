@@ -126,6 +126,9 @@ echo $SCHED_ADDRESS > ~/scan_sched_address
 python ~/scan/btrfs_scripts/add-root-device.py
 chown user:user /mnt/scanfs
 
+# Permit the unpriv user to read root's scripts
+chmod 755 /root 
+
 # Machine is now ready to be a GATK worker. Register it:
 ~/scan/register_worker.py $SCHED_ADDRESS > ~/scan_worker_id
 
