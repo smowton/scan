@@ -189,14 +189,46 @@ class SubmitUI:
 <tr><td><input type="submit"/></td></tr></table></p>
 </form></body></html>""" % (self.mktemplatecombo(), self.mkclasscombo())
 
+        def htmltable(self, title, header, rows, colours):
+		style = 'td { padding: 10px; font-size: 18pt; font-family: sans-serif; border: 1px solid black }\n h3 { font-family: sans-serif; font-size: 20pt }'
+		prefix = '<html><head><style>' + style + '</style><body><h3>' + title + '</h3><hr/><table>\n'
+		table_head = "<tr>" + "".join(['<td><b>%s</b></td>' % s for s in header]) + "</tr>"
+		table = "\n".join(["<tr>" + "".join(['<td style="background-color: %s">%s</td>' % (col, a) for a in attrs]) + "</tr>" for (attrs, col) in zip(rows, colours)])
+		suffix = '</table></body></html>'
+                return prefix + table_head + table + suffix
+
 	@cherrypy.expose
 	def workers(self):
 		
-		show_attrs = [(w.wid, w.address, "%d/%d" % (w.free_cores, w.cores), "%d/%d" % (w.free_memory, w.memory), "<br/>".join([p.pid for p in w.running_processes])) for w in self.sched.workers]
-		prefix = '<html><body><h3>SCAN Workers</h3><hr/><font size="16"><table>\n'
-		table = "\n".join(["<tr>" + ["<td>%s</td>" % a for a in attrs] + "</tr>" for attrs in show_attrs])
-		suffix = '</table></font></body></html>'
-		return prefix + table + suffix
+		show_attrs = [(w.wid, w.address, "%d/%d" % (w.free_cores, w.cores), "%d/%d" % (w.free_memory, w.memory), ", ".join([str(p.pid) for p in w.running_processes])) for w in self.sched.workers.itervalues()]
+		header = ("ID", "Address", "Free cores", "Free memory", "Running jobs")
+                return self.htmltable("SCAN Workers", header, show_attrs, ["white"] * len(show_attrs)) 
+
+        @cherrypy.expose
+        def jobs(self):
+
+                def print_worker(t):
+                        if t.worker is None:
+                                return ""
+                        else:
+                                return "%s/%s" % (t.worker.address, t.worker.wid)
+
+                def print_attribs(t):
+                        if t.run_attributes is None:
+                                return ""
+                        else:
+                                return "%d cores / %dGB RAM" % (t.run_attributes["cores"], t.run_attributes["memory"]) 
+
+                def ellipsis(t):
+                        if len(t) > 50:
+                                return t[:50] + "..."
+                        else:
+                                return t
+
+                show_attrs = [(t.pid, t.classname, t.description if t.description is not None else ellipsis(t.cmd), t.estsize, print_worker(t), print_attribs(t)) for t in self.sched.procs.itervalues()]
+                header = ("ID", "Class", "Description", "Est. size", "Worker", "Attributes")
+                colours = ["lightgreen" if t.worker is not None else "white" for t in self.sched.procs.itervalues()] 
+                return self.htmltable("SCAN Jobs", header, show_attrs, colours)
 
 class MulticlassScheduler:
 
