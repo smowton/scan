@@ -95,8 +95,9 @@ class Worker:
 
 class Task:
 
-	def __init__(self, cmd, pid, classname, maxcores, mempercore, estsize, filesin, filesout, sched):
+	def __init__(self, cmd, description, pid, classname, maxcores, mempercore, estsize, filesin, filesout, sched):
 		self.cmd = cmd
+		self.description = description
                 self.pid = pid
 		self.maxcores = maxcores
 		self.mempercore = mempercore
@@ -153,8 +154,9 @@ class DictEncoder(json.JSONEncoder):
 
 class SubmitUI:
 
-        def __init__(self, classes):
+        def __init__(self, classes, sched):
                 self.classes = classes
+		self.sched = sched
 
         def mktemplatecombo(self):
                 return websupport.mkcombo("template", [{"name": k, "desc": v["desc"]} for (k, v) in scan_templates.templates().iteritems()])
@@ -187,6 +189,15 @@ class SubmitUI:
 <tr><td><input type="submit"/></td></tr></table></p>
 </form></body></html>""" % (self.mktemplatecombo(), self.mkclasscombo())
 
+	@cherrypy.expose
+	def workers(self):
+		
+		show_attrs = [(w.wid, w.address, "%d/%d" % (w.free_cores, w.cores), "%d/%d" % (w.free_memory, w.memory), "<br/>".join([p.pid for p in w.running_processes])) for w in self.sched.workers]
+		prefix = '<html><body><h3>SCAN Workers</h3><hr/><font size="16"><table>\n'
+		table = "\n".join(["<tr>" + ["<td>%s</td>" % a for a in attrs] + "</tr>" for attrs in show_attrs])
+		suffix = '</table></font></body></html>'
+		return prefix + table + suffix
+
 class MulticlassScheduler:
 
 	@cherrypy.config(**{'response.timeout': 3600})
@@ -209,7 +220,7 @@ class MulticlassScheduler:
 		self.taskqueue = []
 		self.httpqueue = httpqueue
 
-                self.ui = SubmitUI(self.classes)
+                self.ui = SubmitUI(self.classes, self)
                 self.results = integ_analysis.results.ResultViewer()
 
                 self.procs = dict()
@@ -852,7 +863,7 @@ class MulticlassScheduler:
 
 			return json.dumps({"pid": pid, "retcode": ret})
 
-        def addworkitem(self, cmd, classname, maxcores, mempercore, estsize, filesin, filesout):
+        def addworkitem(self, cmd, classname, maxcores, mempercore, estsize, filesin, filesout, description = None):
 
 		mempercore = int(mempercore)
 		maxcores = int(maxcores)
@@ -865,7 +876,7 @@ class MulticlassScheduler:
 		with self.lock:
 
 			newpid = self.nextpid
-			newproc = Task(cmd, newpid, classname, maxcores, mempercore, estsize, filelist(filesin), filelist(filesout), self)
+			newproc = Task(cmd, description, newpid, classname, maxcores, mempercore, estsize, filelist(filesin), filelist(filesout), self)
 			self.nextpid += 1
 			self.procs[newpid] = newproc
 			newproc.queue_time = datetime.datetime.now()
