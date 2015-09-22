@@ -59,11 +59,11 @@ public class ScanProbe extends Probe{
 		this.addProbeProperty(3, "rewardLostToSmallWorkers", ProbePropertyType.DOUBLE, "", "reward lost due to workers unable to offer sufficient local parallelism");
 		this.addProbeProperty(4, "totalReward", ProbePropertyType.DOUBLE, "", "total reward gained so far");
 		
-		int idx = 6;
+		int idx = 5;
 
 		for(String c : classes) {
 
-			this.addProbeProperty(idx + 1, c + "_workPerHour",ProbePropertyType.DOUBLE,"", c + " work units per hour");
+			this.addProbeProperty(idx, c + "_workPerHour",ProbePropertyType.DOUBLE,"", c + " work units per hour");
 			idx++;
 
 		}
