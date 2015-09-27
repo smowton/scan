@@ -859,7 +859,7 @@ class MulticlassScheduler:
 						self.total_reward += reward_gained
                                                 
                                         esthours = (rp.expected_finish_time - rp.start_time).total_seconds() / (60 * 60)
-                                        self.completed_procs[pid] = {"return": 0, "esthours": esthours, "runhours": runhours}
+                                        self.completed_procs[pid] = {"return": 0, "esthours": esthours, "runhours": runhours, "original": rp}
 					del self.procs[pid]
 
 				else:
