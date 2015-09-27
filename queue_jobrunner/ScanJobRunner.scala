@@ -20,6 +20,15 @@ class ScanJobRunner(val function: CommandLineFunction, val manager: ScanJobManag
 
   }
 
+  def getDoubleNativeParam(name : String, defaultValue : Double) : Double = {
+
+    function.jobNativeArgs.indexOf(name) match {
+      case -1 => defaultValue
+      case x => Double.parseDouble(function.jobNativeArgs(x + 1))
+    }
+
+  }
+
   val scanfsPrefix = "/mnt/scanfs/"
 
   def getScanfsFiles(in : Seq[File]) : String = {
@@ -38,14 +47,14 @@ class ScanJobRunner(val function: CommandLineFunction, val manager: ScanJobManag
     val escaped_cmd = URLEncoder.encode(cmd_with_err, "UTF-8")
     
     // Fish out args that aren't well expressed by existing Function members:
-    val memPerCore = getIntegerNativeParam("mempercore", 1)
+    val memPerCore = getDoubleNativeParam("mempercore", 1)
     val estSize = getIntegerNativeParam("estsize", 1)
     val maxCores = function.nCoresRequest.getOrElse(getIntegerNativeParam("maxcores", 1))
 
     val declareInputs = getScanfsFiles(function.inputs)
     val declareOutputs = getScanfsFiles(function.outputs)
 
-    val url = "http://%s:%d/addworkitem?classname=%s&maxcores=%d&mempercore=%d&estsize=%d&filesin=%s&filesout=%s&cmd=%s".format(
+    val url = "http://%s:%d/addworkitem?classname=%s&maxcores=%d&mempercore=%f&estsize=%d&filesin=%s&filesout=%s&cmd=%s".format(
       manager.scanHost, manager.scanPort, className, maxCores, memPerCore, estSize, declareInputs, declareOutputs, escaped_cmd)
     val stream = new URL(url).openStream()
     val tok = new JSONTokener(stream)

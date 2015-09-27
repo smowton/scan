@@ -903,7 +903,7 @@ class MulticlassScheduler:
 
         def addworkitem(self, cmd, classname, maxcores, mempercore, estsize, filesin, filesout, description = None):
 
-		mempercore = int(mempercore)
+		mempercore = float(mempercore)
 		maxcores = int(maxcores)
 		estsize = float(estsize)
 
@@ -961,7 +961,7 @@ class MulticlassScheduler:
 	def addworker(self, address, cores, memory):
 		
 		cores = int(cores)
-		memory = int(memory)
+		memory = float(memory)
 
 		with self.lock:
 
