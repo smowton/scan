@@ -46,7 +46,7 @@ class ScanJobManager extends CommandLineJobManager[ScanJobRunner] {
     for(id <- ids2.keys) {
 
       val id_long = id.toLong
-      val rc = ids2.getLong(id)
+      val rc = ids2.getJSONObject(id).getLong("return")
       rclist :+= (id_long, rc)
 
     }

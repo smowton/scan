@@ -48,7 +48,7 @@ def wait_for_task(server, pid):
             continue
 
         tasks = json.load(response)
-        tasks = dict([(int(k), v) for (k, v) in tasks.iteritems()])
+        tasks = dict([(int(k), v["return"]) for (k, v) in tasks.iteritems()])
 
         if pid in tasks:
             if tasks[pid] == 0:

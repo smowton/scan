@@ -853,7 +853,8 @@ class MulticlassScheduler:
 						print "Reward gained: %f" % reward_gained
 						self.total_reward += reward_gained
                                                 
-                                        self.completed_procs[pid] = 0
+                                        esthours = (rp.expected_finish_time - rp.start_time).total_seconds() / (60 * 60)
+                                        self.completed_procs[pid] = {"return": 0, "esthours": esthours, "runhours": runhours}
 					del self.procs[pid]
 
 				else:
@@ -870,11 +871,11 @@ class MulticlassScheduler:
 							dfsstat["pending"].remove(freed_worker.wid)
 
                                         if rp.cancelled:
-                                                self.completed_procs[pid] = -1
+                                                self.completed_procs[pid] = {"return": -1}
                                                 del self.procs[pid]
 					elif rp.failures == 10:
 						print "Too many failures; giving up"
-                                                self.completed_procs[pid] = ret
+                                                self.completed_procs[pid] = {"return": ret}
 						del self.procs[pid]
 					else:
 						rp.failures += 1
