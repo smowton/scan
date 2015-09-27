@@ -172,13 +172,15 @@ class VarCallingPipeline extends QScript {
 
     val scatterCounts = parseScatterCount
 
-    def gatk_add(c : JavaCommandLineFunction, idx : Int) {
+    def gatk_add(c : JavaCommandLineFunction, idx : Int, multithread : Boolean) {
 
       // Received wisdom re: GATK and memory demand:
       c.javaMemoryLimit = Some(6)
 
+      val coresRequest = if(multithread) "16" else "1"
+
       // Generic settings for GATK tasks:
-      c.jobNativeArgs = List("estsize", estsize, "mempercore", "0.5")
+      c.jobNativeArgs = List("estsize", estsize, "mempercore", "0.5", "maxcores", coresRequest)
 
       // Don't require the CWD to be accessible remotely:
       c.commandDirectory = workdir
@@ -231,7 +233,7 @@ class VarCallingPipeline extends QScript {
     RTC.jobQueue = "gatk_rtc"
     RTC.extraArgs = List("-nt", "$SCAN_CORES")
     
-    gatk_add(RTC, 0)
+    gatk_add(RTC, 0, true)
 
     val IR = new IndelRealigner with MeasureInput with OverrideTempDir with NeedsFastaIndex
     IR.reference_sequence = genome
@@ -242,7 +244,7 @@ class VarCallingPipeline extends QScript {
     IR.bam_compression = 0
     IR.jobQueue = "gatk_ir"
 
-    gatk_add(IR, 1)
+    gatk_add(IR, 1, false)
 
     val BR = new BaseRecalibrator with ExtraArgs with MeasureReference with OverrideTempDir with NeedsFastaIndex
     BR.reference_sequence = genome
@@ -253,7 +255,7 @@ class VarCallingPipeline extends QScript {
     BR.jobQueue = "gatk_br"
     BR.extraArgs = List("-nct", "$SCAN_CORES")
 
-    gatk_add(BR, 2)
+    gatk_add(BR, 2, true)
 
     val PR = new PrintReads with ExtraArgs with MeasureInput with OverrideTempDir with NeedsFastaIndex
     PR.reference_sequence = genome
@@ -263,7 +265,7 @@ class VarCallingPipeline extends QScript {
     PR.jobQueue = "gatk_pr"
     PR.extraArgs = List("-nct", "$SCAN_CORES")
 
-    gatk_add(PR, 3)
+    gatk_add(PR, 3, true)
 
     val UG = new UnifiedGenotyper with ExtraArgs with MeasureReference with OverrideTempDir with NeedsFastaIndex
     UG.reference_sequence = genome
@@ -276,7 +278,7 @@ class VarCallingPipeline extends QScript {
     UG.jobQueue = "gatk_ug"
     UG.extraArgs = List("-nt", "$SCAN_CORES")
 
-    gatk_add(UG, 4)
+    gatk_add(UG, 4, true)
 
     val VF = new VariantFiltration with MeasureVariant with OverrideTempDir with NeedsFastaIndex
     VF.reference_sequence = genome
@@ -288,7 +290,7 @@ class VarCallingPipeline extends QScript {
     VF.clusterWindowSize = 10
     VF.jobQueue = "gatk_vf"
 
-    gatk_add(VF, 5)
+    gatk_add(VF, 5, false)
 
     val VE = new VariantEval with ExtraArgs with MeasureReference with OverrideTempDir with NeedsFastaIndex
     VE.reference_sequence = genome
@@ -298,7 +300,7 @@ class VarCallingPipeline extends QScript {
     VE.jobQueue = "gatk_ve"
     VE.extraArgs = List("-nt", "$SCAN_CORES")
 
-    gatk_add(VE, 6)
+    gatk_add(VE, 6, true)
 
   }
 

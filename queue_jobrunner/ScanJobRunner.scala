@@ -40,12 +40,13 @@ class ScanJobRunner(val function: CommandLineFunction, val manager: ScanJobManag
     // Fish out args that aren't well expressed by existing Function members:
     val memPerCore = getIntegerNativeParam("mempercore", 1)
     val estSize = getIntegerNativeParam("estsize", 1)
+    val maxCores = function.nCoresRequest.getOrElse(getIntegerNativeParam("maxcores", 1))
 
     val declareInputs = getScanfsFiles(function.inputs)
     val declareOutputs = getScanfsFiles(function.outputs)
 
     val url = "http://%s:%d/addworkitem?classname=%s&maxcores=%d&mempercore=%d&estsize=%d&filesin=%s&filesout=%s&cmd=%s".format(
-      manager.scanHost, manager.scanPort, className, function.nCoresRequest.getOrElse(1), memPerCore, estSize, declareInputs, declareOutputs, escaped_cmd)
+      manager.scanHost, manager.scanPort, className, maxCores, memPerCore, estSize, declareInputs, declareOutputs, escaped_cmd)
     val stream = new URL(url).openStream()
     val tok = new JSONTokener(stream)
     val reply_obj = new JSONObject(tok)
