@@ -26,10 +26,10 @@ if len(lines) == 0:
 
 bits = lines[0].split()
 
-if len(bits) < 5 or bits[3] != "src":
+try:
+    me = bits[bits.index("src") + 1]
+except:
     print >>sys.stderr, "Unexpected format for IP route query", sched_ip4, ":", route_report
-
-me = bits[4]
 
 response = simplepost.post(sys.argv[1], 8080, "/addworker", {"address": me, "cores": str(cores), "memory": str(mem_gib)})
 
