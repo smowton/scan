@@ -178,7 +178,7 @@ class VarCallingPipeline extends QScript {
       c.javaMemoryLimit = Some(6)
 
       // Generic settings for GATK tasks:
-      c.jobNativeArgs = List("estsize", estsize, "mempercore", "1")
+      c.jobNativeArgs = List("estsize", estsize, "mempercore", "0.5")
 
       // Don't require the CWD to be accessible remotely:
       c.commandDirectory = workdir

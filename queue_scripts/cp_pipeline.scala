@@ -50,7 +50,7 @@ class CPScript extends QScript {
  
   def cpadd(c : CommandLineFunction, classname : String) {
 
-    c.jobNativeArgs = List("estsize", estsize, "mempercore", "1")
+    c.jobNativeArgs = List("estsize", estsize, "mempercore", "0.5")
     c.commandDirectory = outdir
     c.jobLocalDir = "/tmp"
     c.jobQueue = classname

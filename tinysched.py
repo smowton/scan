@@ -378,6 +378,11 @@ class MulticlassScheduler:
 			# No reward scale given; try to grab as many cores as the process type can use
 			report.append("Class " + proc.classname + " gives no profiling parameters: try for " + str(proc.maxcores) + " cores")
 			maxcores = proc.maxcores
+                        nthreads_choices = [proc.maxcores]
+                elif proc.maxcores == 0:
+                        # Process is I/O bound and allowed to run anywhere, only consuming memory
+                        maxcores = 0
+                        nthreads_choices = [0]
 		else:
 			size_time = self.classes[proc.classname]["size_time"]
 			thread_time = self.classes[proc.classname]["thread_time"]
@@ -463,7 +468,7 @@ class MulticlassScheduler:
 
 		for w in self.workers.itervalues():
 
-			if w.delete_pending or w.fully_occupied():
+                        if w.delete_pending or (maxcores != 0 and w.fully_occupied()) or w.free_memory == 0:
 				continue
 
 			def score_file(f, wid):
@@ -493,7 +498,7 @@ class MulticlassScheduler:
 				if will_use_cores == maxcores and missing_files == 0:
 					break
 
-		if reward_scale is not None and best_worker is not None:
+		if maxcores != 0 and reward_scale is not None and best_worker is not None:
 			
 			evaluated_cores = sorted(reward_choices.iterkeys())
 			for c1, c2 in zip(evaluated_cores[:-1], evaluated_cores[1:]):
@@ -540,7 +545,7 @@ class MulticlassScheduler:
 					print >>sys.stderr, "Changed core count in order to measure scalability"
 
 			report.append("Selected worker " + best_worker.address + " / " + str(best_worker.wid) + " with " + str(will_use_cores) + " cores and " + str(missing_files) + " missing files.")
-			run_attr = {"cores": will_use_cores, "memory": proc.mempercore * will_use_cores}
+			run_attr = {"cores": will_use_cores, "memory": proc.mempercore * max(will_use_cores, 1)}
 
 		if best_worker is not None:
 			print "\n".join(report)

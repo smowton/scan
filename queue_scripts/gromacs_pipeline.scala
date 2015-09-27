@@ -44,7 +44,7 @@ class GromacsScript extends QScript {
 
   def gromadd(c : CommandLineFunction, cores : Integer, classname : String) {
 
-    c.jobNativeArgs = List("estsize", estsize, "mempercore", "1")
+    c.jobNativeArgs = List("estsize", estsize, "mempercore", "0.5")
     c.commandDirectory = workdir
     c.jobLocalDir = "/tmp"
     c.jobQueue = classname
