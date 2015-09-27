@@ -24,7 +24,7 @@ class ScanJobRunner(val function: CommandLineFunction, val manager: ScanJobManag
 
     function.jobNativeArgs.indexOf(name) match {
       case -1 => defaultValue
-      case x => Double.parseDouble(function.jobNativeArgs(x + 1))
+      case x => function.jobNativeArgs(x + 1).toDouble
     }
 
   }
