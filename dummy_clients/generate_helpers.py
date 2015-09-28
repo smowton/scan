@@ -13,7 +13,7 @@ def start_queue_task(server, qscript, qargs):
     post_args = {"cmd": cmd,
                  "classname": "queue_runner",
                  "maxcores": "0",
-                 "mempercore": "1",
+                 "mempercore": "2",
                  "estsize": "1",
                  "filesin": "",
                  "filesout": ""}

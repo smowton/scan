@@ -180,7 +180,7 @@ class VarCallingPipeline extends QScript {
       val coresRequest = if(multithread) "16" else "1"
 
       // Generic settings for GATK tasks:
-      c.jobNativeArgs = List("estsize", estsize, "mempercore", "0.5", "maxcores", coresRequest)
+      c.jobNativeArgs = List("estsize", estsize, "mempercore", "2.0", "maxcores", coresRequest)
 
       // Don't require the CWD to be accessible remotely:
       c.commandDirectory = workdir
