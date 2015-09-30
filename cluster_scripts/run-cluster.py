@@ -20,11 +20,13 @@ scp_cmd = ["/usr/bin/scp"] + ssh_cmd[1:]
 
 script = sys.argv[2]
 
+lim = int(sys.argv[3]) if len(sys.argv) >= 4 else len(machines)
+
 print "Writing output to", tempdir
 
 run_threads = []
 
-for m in machines:
+for m in machines[:lim]:
 
 	"Start", m["ip"]
 	
