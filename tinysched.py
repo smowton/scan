@@ -421,7 +421,7 @@ class MulticlassScheduler:
 			
 			if allocated_cores > 0 and len(finish_times) > 1 and finish_times[-1] != finish_times[0]:
 				finish_rate = allocated_cores / (finish_times[-1] - finish_times[0]).total_seconds()
-			elif len(finish_times) == 1:
+			elif allocated_cores > 0 and len(finish_times) == 1:
 				finish_rate = allocated_cores / max((finish_times[0] - datetime.datetime.now()).total_seconds(), 1)
 			else:
 				finish_rate = float(1) / 3600 # Shrug! One every hour?
