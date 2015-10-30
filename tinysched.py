@@ -389,6 +389,8 @@ class MulticlassScheduler:
 			thread_time = self.classes[proc.classname]["thread_time"]
 			assert(size_time is not None and thread_time is not None)
 
+			# Never try to allocate more cores than workers have available:
+			maxpossiblecores = min(proc.maxcores, max([w.cores for w in self.workers.itervalues()]))
 			nthreads_choices = core_choices(proc.maxcores)
 			reward_choices = {c: est_reward(proc.estsize, size_time, thread_time, reward_scale, c) for c in nthreads_choices}
 
