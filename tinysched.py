@@ -995,8 +995,12 @@ class MulticlassScheduler:
 						self.dfs_map[l] = {"complete": [], "pending": []}
 					self.dfs_map[l]["complete"].append(newworker.wid)
 
+		self.update_worker_resource_stats(newworker)
+
+		with self.lock:
 			self.trystartprocs()
-			return json.dumps({"wid": newworker.wid})
+
+		return json.dumps({"wid": newworker.wid})
 
 	def delworker(self, callbackaddress=None, wid=None):
 
