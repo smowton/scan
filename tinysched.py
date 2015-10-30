@@ -390,8 +390,8 @@ class MulticlassScheduler:
 			assert(size_time is not None and thread_time is not None)
 
 			# Never try to allocate more cores than workers have available:
-			maxpossiblecores = min(proc.maxcores, max([w.cores for w in self.workers.itervalues()]))
-			nthreads_choices = core_choices(proc.maxcores)
+			maxpossiblecores = min(proc.maxcores, max([w.cores for w in self.workers.itervalues()] if len(self.workers) > 0 else [1]))
+			nthreads_choices = core_choices(maxpossiblecores)
 			reward_choices = {c: est_reward(proc.estsize, size_time, thread_time, reward_scale, c) for c in nthreads_choices}
 
 			report.append("Estimated core -> rewards " + ", ".join("%d -> %g" % x for x in reward_choices.iteritems()))
