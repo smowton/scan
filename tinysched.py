@@ -266,8 +266,8 @@ class MulticlassScheduler:
                 self.httpqueue = httpqueue
                 self.lock = threading.Lock()
 
-		self.scale_reward_loss = 0.0
-		self.queue_reward_loss = 0.0
+		self.scale_reward_loss_history = []
+		self.queue_reward_loss_history = []
 		self.total_reward = 0.0
 
 		# Adaptive scale selection parameters:
@@ -647,8 +647,12 @@ class MulticlassScheduler:
 		self.update_worker_resource_stats(np.worker)
 
 		# Accounting: reward lost due to queueing and suboptimal worker assignment:
-		self.scale_reward_loss += scale_reward_loss
-		self.queue_reward_loss += queue_reward_loss
+		self.scale_reward_loss_history.append(scale_reward_loss)
+		if len(self.scale_reward_loss_history) > 10:
+			self.scale_reward_loss_history = self.scale_reward_loss_history[1:]
+		self.queue_reward_loss_history.append(queue_reward_loss)
+		if len(self.queue_reward_loss_history) > 10:
+			self.queue_reward_loss_history = self.queue_reward_loss_history[1:]
 
                 return True
 
@@ -1116,10 +1120,16 @@ class MulticlassScheduler:
 		return str(self.total_reward)
 
 	def getqueuerewardloss(self):
-		return str(self.queue_reward_loss)
+		historylen = len(self.queue_reward_loss_history)
+		if historylen == 0:
+			historylen = 1
+		return str(sum(self.queue_reward_loss_history) / historylen)
 
 	def getscalerewardloss(self):
-		return str(self.scale_reward_loss)
+		historylen = len(self.scale_reward_loss_history)
+		if historylen == 0:
+			historylen = 1		
+		return str(sum(self.scale_reward_loss_history) / historylen)
 
 	def notifypressure(self, cut_factor):
 		self.worker_pool_size_threshold *= float(cut_factor)
