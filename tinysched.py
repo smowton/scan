@@ -20,6 +20,7 @@ import numpy
 import os
 import shutil
 import socket
+import traceback
 
 import scan_templates
 import integ_analysis.results
@@ -200,7 +201,7 @@ class SubmitUI:
 	@cherrypy.expose
 	def workers(self):
 		
-		show_attrs = [(w.wid, w.address, "%d/%d" % (w.free_cores, w.cores), "%d/%d" % (w.free_memory, w.memory), ", ".join([str(p.pid) for p in w.running_processes])) for w in self.sched.workers.itervalues()]
+		show_attrs = [(w.wid, w.address, "%d/%d" % (w.free_cores, w.cores), "%f/%f" % (w.free_memory, w.memory), ", ".join([str(p.pid) for p in w.running_processes])) for w in self.sched.workers.itervalues()]
 		header = ("ID", "Address", "Free cores", "Free memory", "Running jobs")
                 return self.htmltable("SCAN Workers", header, show_attrs, ["white"] * len(show_attrs)) 
 
@@ -217,7 +218,7 @@ class SubmitUI:
                         if t.run_attributes is None:
                                 return ""
                         else:
-                                return "%d cores / %dGB RAM" % (t.run_attributes["cores"], t.run_attributes["memory"]) 
+                                return "%d cores / %fGB RAM" % (t.run_attributes["cores"], t.run_attributes["memory"]) 
 
                 def ellipsis(t):
                         if len(t) > 50:
@@ -681,7 +682,7 @@ class MulticlassScheduler:
 					print "Only removed worker has file %s; giving to %s / %s" % (f, give_to_worker.address, give_to_worker.wid)
 					copier = self.getdfscopier(give_to_worker, [self.abs_dfs_file(f)], self.abs_dfs_file(f))
 					runner = self.getrunner(freed_worker)
-					runner.append(copier)
+					runner.append(" ".join(copier))
 					try:
 						subprocess.check_call(runner)
 						stat["complete"] = [give_to_worker.wid]
@@ -806,10 +807,10 @@ class MulticlassScheduler:
 				freed_worker.running_processes.remove(rp)
 
 				if ret == 0:
-					self.classes[rp.classname]["time_history"].append((rp.estsize, rp.run_attributes["cores"], datetime.datetime.now() - rp.start_time))
+					self.classes[rp.classname]["time_history"].append((rp.estsize, max(1, rp.run_attributes["cores"]), datetime.datetime.now() - rp.start_time))
 					self.update_class_model(rp.classname)
 
-				self.update_worker_resource_stats(freed_worker)
+                                self.update_worker_resource_stats(freed_worker)
 
 				if ret == 0:
 
@@ -1283,7 +1284,11 @@ class TaskPoller:
                 while True:
 
 			for pid in sched.getpids():
-				sched.pollworkitem(pid)
+                                try:
+                                        sched.pollworkitem(pid)
+                                except Exception as e:
+                                        print >>sys.stderr, "*** Caught exception while polling tasks:"
+                                        traceback.print_exc()
                                         
                         with sched.lock:
                                 sched.trystartprocs()
